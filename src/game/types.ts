@@ -1,6 +1,34 @@
 export type GamePhase = 'MENU' | 'PLAYING' | 'GAMEOVER';
 
-export type DeliveryType = 'PIZZA' | 'EXPRESS' | 'FRAGILE';
+export type DeliveryType =
+  | 'PIZZA'
+  | 'EXPRESS'
+  | 'FRAGILE'
+  | 'ROCKET_PIZZA'
+  | 'BOUNCY_BOX'
+  | 'GOLDEN_PARCEL'
+  | 'CONFETTI_BOMB'
+  | 'MAGNET_MAIL'
+  | 'MYSTERY_PARCEL';
+
+export type ArcadeEventType =
+  | 'PIZZA_PANIC'
+  | 'RUSH_HOUR'
+  | 'NEIGHBORHOOD_FESTIVAL'
+  | 'GOLDEN_MINUTE'
+  | 'CONFETTI_STORM'
+  | 'TURBO_FEVER';
+
+export interface ArcadeEvent {
+  type: ArcadeEventType;
+  title: string;
+  description: string;
+  duration: number; // in seconds
+  elapsed: number;
+  active: boolean;
+  scoreMultiplier: number;
+  color: string;
+}
 
 export interface ScoreEvent {
   points: number;
@@ -44,6 +72,13 @@ export interface GameState {
   activeCelebration: CelebrationEvent | null;
   highScore: number;
   bestCombo: number;
+
+  // Maximum 2.5D Systems: Turbo, Drift Style, and Dynamic Events
+  turboMeter: number; // 0 to 100
+  isTurboActive: boolean;
+  turboTimeLeft: number;
+  driftStylePoints: number;
+  activeEvent: ArcadeEvent | null;
 }
 
 export interface Point {
@@ -89,6 +124,11 @@ export interface ThrownPackage {
   rotationSpeed: number;
   resolved: boolean;
   wasMoving: boolean;
+
+  // Maximum 2.5D Special Packages
+  bouncesRemaining?: number;
+  isRocket?: boolean;
+  trailTimer?: number;
 }
 
 export interface SkidSegment {

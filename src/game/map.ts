@@ -488,6 +488,71 @@ export class CityMap {
     }
     ctx.setLineDash([]);
 
+    // 2b. Intersection Crosswalk Zebra Stripes & Manhole Covers
+    for (const hr of this.hRoads) {
+      if (hr.y + hr.h < cameraY - pad || hr.y > cameraY + viewH + pad) continue;
+      for (const vr of this.vRoads) {
+        if (vr.x + vr.w < cameraX - pad || vr.x > cameraX + viewW + pad) continue;
+
+        // North crosswalk
+        ctx.fillStyle = C.ROAD_ZEBRA;
+        for (let z = 0; z < 8; z++) {
+          ctx.fillRect(vr.x + 12 + z * (vr.w - 24) / 8, hr.y - 20, (vr.w - 24) / 16, 16);
+        }
+        // South crosswalk
+        for (let z = 0; z < 8; z++) {
+          ctx.fillRect(vr.x + 12 + z * (vr.w - 24) / 8, hr.y + hr.h + 4, (vr.w - 24) / 16, 16);
+        }
+        // West crosswalk
+        for (let z = 0; z < 8; z++) {
+          ctx.fillRect(vr.x - 20, hr.y + 12 + z * (hr.h - 24) / 8, 16, (hr.h - 24) / 16);
+        }
+        // East crosswalk
+        for (let z = 0; z < 8; z++) {
+          ctx.fillRect(vr.x + vr.w + 4, hr.y + 12 + z * (hr.h - 24) / 8, 16, (hr.h - 24) / 16);
+        }
+
+        // Central intersection manhole cover
+        const mX = vr.x + vr.w / 2;
+        const mY = hr.y + hr.h / 2;
+        ctx.fillStyle = '#1e2430';
+        ctx.beginPath();
+        ctx.arc(mX, mY, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#384252';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Corner streetlights with soft warm halos
+        const corners = [
+          { x: vr.x - 14, y: hr.y - 14 },
+          { x: vr.x + vr.w + 14, y: hr.y - 14 },
+          { x: vr.x - 14, y: hr.y + hr.h + 14 },
+          { x: vr.x + vr.w + 14, y: hr.y + hr.h + 14 },
+        ];
+        for (const lamp of corners) {
+          // Soft radial glow
+          const glow = ctx.createRadialGradient(lamp.x, lamp.y, 4, lamp.x, lamp.y, 48);
+          glow.addColorStop(0, 'rgba(255, 240, 180, 0.28)');
+          glow.addColorStop(1, 'rgba(255, 240, 180, 0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(lamp.x, lamp.y, 48, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Pole fixture
+          ctx.fillStyle = '#64748b';
+          ctx.beginPath();
+          ctx.arc(lamp.x, lamp.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fef08a';
+          ctx.beginPath();
+          ctx.arc(lamp.x, lamp.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
     // 3. Sidewalk Slabs around buildings
     const sw = 18;
     for (const b of this.buildings) {

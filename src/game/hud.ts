@@ -96,13 +96,13 @@ export class TemporaryHUD {
     ctx.fillStyle = '#38b000';
     ctx.fillText(`${state.deliveries}`, delX, 68);
 
-    // 5. CARGO AMMO (Little 3D parcel boxes)
-    const ammoX = 900;
+    // 5. CARGO AMMO & SPECIAL WEAPON
+    const ammoX = 890;
     ctx.font = 'bold 11px "Outfit", system-ui, sans-serif';
     ctx.fillStyle = '#94a3b8';
     const curType = state.currentDeliveryType || 'EXPRESS';
-    const typeLabel = curType === 'PIZZA' ? 'PIZZA [SPACE: HOLD TO CHARGE]' : curType === 'FRAGILE' ? 'FRAGILE [SPACE: CHARGE]' : 'PARCEL [SPACE: CHARGE]';
-    ctx.fillText(`CARGO: ${typeLabel}`, ammoX, 36);
+    const typeDef = GAME_CONFIG.DELIVERY_TYPES[curType] || GAME_CONFIG.DELIVERY_TYPES.EXPRESS;
+    ctx.fillText(`CARGO: ${typeDef.name}`, ammoX, 36);
 
     for (let i = 0; i < state.maxPackages; i++) {
       const px = ammoX + i * 28;
@@ -110,44 +110,18 @@ export class TemporaryHUD {
       const hasPkg = i < state.packagesRemaining;
 
       if (hasPkg) {
-        if (curType === 'PIZZA') {
-          ctx.fillStyle = '#f8fafc';
-          ctx.beginPath();
-          ctx.roundRect(px, py, 22, 20, 4);
-          ctx.fill();
-          ctx.strokeStyle = '#dc2626';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(px + 11, py + 10, 4, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (curType === 'FRAGILE') {
-          ctx.fillStyle = '#9333ea';
-          ctx.beginPath();
-          ctx.roundRect(px, py, 22, 20, 4);
-          ctx.fill();
-          ctx.strokeStyle = '#f43f5e';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-          ctx.fillStyle = '#fbbf24';
-          ctx.fillRect(px + 8, py + 7, 6, 6);
-        } else {
-          ctx.fillStyle = '#d4a373';
-          ctx.beginPath();
-          ctx.roundRect(px, py, 22, 20, 4);
-          ctx.fill();
-          ctx.strokeStyle = '#a16207';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
+        ctx.fillStyle = typeDef.color;
+        ctx.beginPath();
+        ctx.roundRect(px, py, 22, 20, 4);
+        ctx.fill();
+        ctx.strokeStyle = typeDef.badgeColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-          ctx.strokeStyle = '#faedcd';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(px + 11, py);
-          ctx.lineTo(px + 11, py + 20);
-          ctx.stroke();
-        }
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(typeDef.icon, px + 11, py + 14);
+        ctx.textAlign = 'start';
       } else {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.beginPath();
@@ -159,11 +133,69 @@ export class TemporaryHUD {
     if (state.isReloading) {
       ctx.font = 'bold 12px "Fredoka", system-ui, sans-serif';
       ctx.fillStyle = '#ffbe0b';
-      ctx.fillText(`RELOADING... ${Math.round(state.reloadProgress * 100)}%`, ammoX + 155, 62);
+      ctx.fillText(`RELOADING... ${Math.round(state.reloadProgress * 100)}%`, ammoX + 150, 62);
     }
 
-    // FINAL RUSH BANNER (Urgent visual cue during final 15 seconds)
-    if (state.isFinalRush) {
+    // --- TURBO GAUGE (Bottom Left Glass Card) ---
+    const turboX = 24;
+    const turboY = GAME_CONFIG.CANVAS_HEIGHT - 64;
+    const turboW = 210;
+    const turboH = 36;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.strokeStyle = state.isTurboActive ? '#00f5d4' : 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = state.isTurboActive ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.roundRect(turboX, turboY, turboW, turboH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = '900 11px "Fredoka", sans-serif';
+    ctx.fillStyle = state.isTurboActive ? '#00f5d4' : (state.turboMeter >= 100 ? '#fee440' : '#94a3b8');
+    const turboLabel = state.isTurboActive
+      ? `🔥 TURBO BOOST! (${Math.ceil(state.turboTimeLeft)}s)`
+      : (state.turboMeter >= 100 ? '⚡ TURBO READY!' : `TURBO METER (${Math.round(state.turboMeter)}%)`);
+    ctx.fillText(turboLabel, turboX + 12, turboY + 16);
+
+    // Gauge bar
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.roundRect(turboX + 12, turboY + 22, turboW - 24, 7, 3);
+    ctx.fill();
+
+    const turboRatio = state.isTurboActive
+      ? Math.max(0, state.turboTimeLeft / GAME_CONFIG.TURBO.DURATION_SECONDS)
+      : Math.min(1.0, state.turboMeter / 100);
+    const turboColor = state.isTurboActive ? '#00f5d4' : (state.turboMeter >= 100 ? '#fee440' : '#00bbf9');
+    ctx.fillStyle = turboColor;
+    ctx.beginPath();
+    ctx.roundRect(turboX + 12, turboY + 22, (turboW - 24) * turboRatio, 7, 3);
+    ctx.fill();
+
+    // DYNAMIC ARCADE EVENT BANNER (Top Center)
+    if (state.activeEvent && state.activeEvent.active) {
+      const evt = state.activeEvent;
+      const timeLeft = Math.max(0, Math.ceil(evt.duration - evt.elapsed));
+      const bannerW = 440;
+      const bannerH = 34;
+      const bannerY = 92;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+      ctx.strokeStyle = evt.color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(W / 2 - bannerW / 2, bannerY, bannerW, bannerH, 16);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = '900 13px "Fredoka", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = evt.color;
+      ctx.fillText(`⚡ ${evt.title} — ${evt.description} [${timeLeft}s] ⚡`, W / 2, bannerY + 21);
+      ctx.restore();
+    } else if (state.isFinalRush) {
+      // FINAL RUSH BANNER
       const pulse = Math.sin(Date.now() * 0.012) * 0.5 + 0.5;
       ctx.save();
       ctx.fillStyle = `rgba(239, 68, 68, ${0.15 + pulse * 0.15})`;
@@ -190,7 +222,7 @@ export class TemporaryHUD {
         ctx.globalAlpha = Math.min(1.0, celPct * 2);
         const bannerW = cel.level === 3 ? 340 : 280;
         const bannerH = 32;
-        const bannerY = state.isFinalRush ? 128 : 96;
+        const bannerY = (state.activeEvent || state.isFinalRush) ? 134 : 96;
 
         const bannerBg = cel.level === 3 ? 'rgba(254, 228, 64, 0.22)' : (cel.level === 2 ? 'rgba(0, 245, 212, 0.2)' : 'rgba(15, 23, 42, 0.85)');
         const bannerBorder = cel.level === 3 ? '#fee440' : (cel.level === 2 ? '#00f5d4' : '#38bdf8');
@@ -418,10 +450,11 @@ export class TemporaryHUD {
     // Stats Grid
     ctx.font = '16px "Outfit", system-ui, sans-serif';
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(`Deliveries: ${state.deliveries}`, W / 2 - 130, H / 2 + 48);
-    ctx.fillText(`Max Combo: x${state.maxCombo}`, W / 2 + 130, H / 2 + 48);
-    ctx.fillText(`Best Record: ${state.highScore.toLocaleString()}`, W / 2 - 130, H / 2 + 80);
-    ctx.fillText(`Crashes / Misses: ${state.crashes} / ${state.misses}`, W / 2 + 130, H / 2 + 80);
+    ctx.fillText(`Deliveries: ${state.deliveries}`, W / 2 - 130, H / 2 + 42);
+    ctx.fillText(`Max Combo: x${state.maxCombo}`, W / 2 + 130, H / 2 + 42);
+    ctx.fillText(`Style Score: ${state.driftStylePoints.toLocaleString()} pts`, W / 2 - 130, H / 2 + 70);
+    ctx.fillText(`Crashes / Misses: ${state.crashes} / ${state.misses}`, W / 2 + 130, H / 2 + 70);
+    ctx.fillText(`Best Record: ${state.highScore.toLocaleString()}`, W / 2, H / 2 + 96);
 
     // Restart action
     const pulse = (Math.sin(Date.now() * 0.006) + 1) * 0.5;

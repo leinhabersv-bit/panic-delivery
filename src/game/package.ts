@@ -84,12 +84,17 @@ export class PackageManager {
     const chargeRatio = this.getChargeRatio();
     const minSpd = GAME_CONFIG.PACKAGES.MIN_THROW_SPEED;
     const maxSpd = GAME_CONFIG.PACKAGES.MAX_THROW_SPEED;
-    const baseSpeed = minSpd + (maxSpd - minSpd) * chargeRatio;
+    let baseSpeed = minSpd + (maxSpd - minSpd) * chargeRatio;
+
+    // Rocket Pizza speed boost
+    if (this.currentDeliveryType === 'ROCKET_PIZZA') {
+      baseSpeed *= GAME_CONFIG.DELIVERY_TYPES.ROCKET_PIZZA.flightSpeedMultiplier || 1.4;
+    }
 
     // Modest forward van velocity inheritance
     const forwardBoost = Math.max(0, carSpeed * 0.35);
     const flightSpeed = baseSpeed + forwardBoost;
-    const flightDuration = GAME_CONFIG.PACKAGES.FLIGHT_TIME;
+    const flightDuration = this.currentDeliveryType === 'ROCKET_PIZZA' ? 0.48 : GAME_CONFIG.PACKAGES.FLIGHT_TIME;
     const throwDist = flightSpeed * flightDuration;
 
     const forwardX = Math.cos(carAngle);
@@ -119,11 +124,19 @@ export class PackageManager {
     const { targetX, targetY, flightDuration } = this.calculateTrajectory(carX, carY, carAngle, carSpeed);
     const wasMoving = Math.abs(carSpeed) >= GAME_CONFIG.PACKAGES.MOVING_DELIVERY_MIN_SPEED;
 
+    const isRocket = this.currentDeliveryType === 'ROCKET_PIZZA';
+    const isBouncy = this.currentDeliveryType === 'BOUNCY_BOX';
+
     this.isCharging = false;
     this.chargeTime = 0;
     this.packagesRemaining--;
     this.throwCooldownTimer = GAME_CONFIG.PACKAGES.THROW_COOLDOWN_SECONDS;
-    sound.playThrow();
+
+    if (isRocket) {
+      sound.playRocketLaunch();
+    } else {
+      sound.playThrow();
+    }
 
     this.activePackages.push({
       id: this.nextPackageId++,
@@ -137,11 +150,14 @@ export class PackageManager {
       progress: 0,
       flightDuration,
       elapsedTime: 0,
-      peakHeight: 52 + this.getChargeRatio() * 15,
-      rotation: Math.random() * Math.PI,
-      rotationSpeed: (Math.random() - 0.5) * 12,
+      peakHeight: isRocket ? 36 : (52 + this.getChargeRatio() * 15),
+      rotation: isRocket ? carAngle : Math.random() * Math.PI,
+      rotationSpeed: isRocket ? 0 : (Math.random() - 0.5) * 12,
       resolved: false,
       wasMoving,
+      isRocket,
+      bouncesRemaining: isBouncy ? 1 : 0,
+      trailTimer: 0,
     });
 
     if (this.packagesRemaining === 0 && !this.isReloading) {
@@ -225,16 +241,52 @@ export class PackageManager {
 
       p.currentX = p.startX + (p.targetX - p.startX) * p.progress;
       p.currentY = p.startY + (p.targetY - p.startY) * p.progress;
-      p.rotation += p.rotationSpeed * dt;
 
-      effects.addPackageTrail(p.currentX, p.currentY);
+      if (!p.isRocket) {
+        p.rotation += p.rotationSpeed * dt;
+      }
+
+      // Visual particle trails per type
+      if (p.isRocket) {
+        const flightAngle = Math.atan2(p.targetY - p.startY, p.targetX - p.startX);
+        effects.addRocketExhaust(p.currentX, p.currentY, flightAngle);
+        p.rotation = flightAngle;
+
+        // Mild, bounded target homing assistance (steer up to 35px toward nearest active target)
+        if (p.progress < 0.85) {
+          const nearest = this.getClosestTarget(p.targetX, p.targetY, targets, 180);
+          if (nearest) {
+            const hx = nearest.x - p.targetX;
+            const hy = nearest.y - p.targetY;
+            const hDist = Math.hypot(hx, hy);
+            if (hDist > 5) {
+              p.targetX += (hx / hDist) * Math.min(hDist, 45 * dt);
+              p.targetY += (hy / hDist) * Math.min(hDist, 45 * dt);
+            }
+          }
+        }
+      } else if (p.type === 'GOLDEN_PARCEL') {
+        effects.addGoldSparkle(p.currentX, p.currentY);
+      } else if (p.type === 'MAGNET_MAIL') {
+        effects.addPackageTrail(p.currentX, p.currentY, '#4cc9f0');
+        // Magnetic attraction near target
+        if (p.progress > 0.4) {
+          const nearest = this.getClosestTarget(p.targetX, p.targetY, targets, 100);
+          if (nearest) {
+            p.targetX += (nearest.x - p.targetX) * dt * 2.5;
+            p.targetY += (nearest.y - p.targetY) * dt * 2.5;
+          }
+        }
+      } else {
+        effects.addPackageTrail(p.currentX, p.currentY, p.type === 'CONFETTI_BOMB' ? '#f72585' : '#ffd166');
+      }
 
       // Consistent collision acceptance: check hit at intended landing coordinates as package descends (progress >= 0.85)
       if (p.progress >= 0.85 && !p.resolved) {
         const hitTarget = this.checkTargetHit(p.targetX, p.targetY, targets);
         if (hitTarget) {
           p.resolved = true;
-          this.resolveSuccessfulHit(p, hitTarget, effects, onResolution);
+          this.resolveSuccessfulHit(p, hitTarget, effects, sound, onResolution);
           this.activePackages.splice(i, 1);
           continue;
         }
@@ -242,11 +294,31 @@ export class PackageManager {
 
       // Final landing check
       if (p.progress >= 1.0 && !p.resolved) {
-        p.resolved = true;
         const hitTarget = this.checkTargetHit(p.targetX, p.targetY, targets);
         if (hitTarget) {
-          this.resolveSuccessfulHit(p, hitTarget, effects, onResolution);
+          p.resolved = true;
+          this.resolveSuccessfulHit(p, hitTarget, effects, sound, onResolution);
+          this.activePackages.splice(i, 1);
+        } else if (p.bouncesRemaining && p.bouncesRemaining > 0) {
+          // Bouncy Box trick shot bounce!
+          p.bouncesRemaining--;
+          effects.addBouncePoof(p.targetX, p.targetY);
+          sound.playBounce();
+
+          const throwDirX = p.targetX - p.startX;
+          const throwDirY = p.targetY - p.startY;
+          const throwMag = Math.max(1, Math.hypot(throwDirX, throwDirY));
+
+          p.startX = p.targetX;
+          p.startY = p.targetY;
+          p.targetX = p.startX + (throwDirX / throwMag) * 140;
+          p.targetY = p.startY + (throwDirY / throwMag) * 140;
+          p.elapsedTime = 0;
+          p.flightDuration = 0.32;
+          p.progress = 0;
+          p.peakHeight = 32;
         } else {
+          p.resolved = true;
           effects.addMissDust(p.targetX, p.targetY);
           sound.playMiss();
           const throwDist = Math.hypot(p.targetX - p.startX, p.targetY - p.startY);
@@ -262,10 +334,24 @@ export class PackageManager {
             y: p.targetY,
             missReason,
           });
+          this.activePackages.splice(i, 1);
         }
-        this.activePackages.splice(i, 1);
       }
     }
+  }
+
+  private getClosestTarget(x: number, y: number, targets: DeliveryTarget[], maxRange: number): DeliveryTarget | null {
+    let closest: DeliveryTarget | null = null;
+    let closestDist = maxRange;
+    for (const t of targets) {
+      if (!t.active) continue;
+      const d = Math.hypot(t.x - x, t.y - y);
+      if (d < closestDist) {
+        closestDist = d;
+        closest = t;
+      }
+    }
+    return closest;
   }
 
   private classifyMiss(p: ThrownPackage, targets: DeliveryTarget[]): 'SHORT' | 'LONG' | 'WIDE' {
@@ -317,6 +403,7 @@ export class PackageManager {
     p: ThrownPackage,
     hitTarget: DeliveryTarget,
     effects: EffectsManager,
+    sound: SoundFx,
     onResolution: (res: PackageResolution) => void
   ): void {
     const throwDist = Math.hypot(p.targetX - p.startX, p.targetY - p.startY);
@@ -324,25 +411,30 @@ export class PackageManager {
 
     let points = GAME_CONFIG.PACKAGES.BASE_POINTS;
 
-    // Delivery Variety Bonuses (Phase 4)
-    if (p.type === 'PIZZA') {
-      points += GAME_CONFIG.DELIVERY_TYPES.PIZZA.bonusPoints;
-    } else if (p.type === 'EXPRESS' && isLongShot) {
-      points += GAME_CONFIG.DELIVERY_TYPES.EXPRESS.bonusPoints;
-    } else if (p.type === 'FRAGILE') {
-      const accuracyDist = Math.hypot(p.targetX - hitTarget.x, p.targetY - hitTarget.y);
-      if (accuracyDist < 25) {
-        points += GAME_CONFIG.DELIVERY_TYPES.FRAGILE.bonusPoints;
-      }
+    // Delivery Variety Bonuses from config
+    const typeKey = p.type as keyof typeof GAME_CONFIG.DELIVERY_TYPES;
+    if (GAME_CONFIG.DELIVERY_TYPES[typeKey]) {
+      points += GAME_CONFIG.DELIVERY_TYPES[typeKey].bonusPoints;
     }
 
-    // Moving Delivery Skill Bonus (Phase 2 Rescue)
+    // Moving Delivery Skill Bonus
     if (p.wasMoving) {
       points += GAME_CONFIG.PACKAGES.MOVING_DELIVERY_BONUS;
     }
 
-    effects.addDeliveryBurst(hitTarget.x, hitTarget.y, hitTarget.color);
-    effects.addScreenShake(0.25);
+    // Special package impact effects
+    if (p.type === 'ROCKET_PIZZA') {
+      effects.addRocketExplosion(hitTarget.x, hitTarget.y);
+      sound.playRocketExplosion();
+    } else if (p.type === 'CONFETTI_BOMB') {
+      effects.addNeighborhoodPartyBurst(hitTarget.x, hitTarget.y, '#f72585');
+    } else if (p.type === 'GOLDEN_PARCEL') {
+      effects.addGoldSparkle(hitTarget.x, hitTarget.y);
+      effects.addDeliveryBurst(hitTarget.x, hitTarget.y, '#ffd700');
+    } else {
+      effects.addDeliveryBurst(hitTarget.x, hitTarget.y, hitTarget.color);
+    }
+    effects.addScreenShake(0.28);
 
     onResolution({
       type: 'HIT',
@@ -389,7 +481,6 @@ export class PackageManager {
     ctx.stroke();
 
     if (indicator.targetLock) {
-      // Corner reticle brackets when locked on valid target zone
       const bSize = 12;
       const bOffset = landingRadius + 6;
       ctx.strokeStyle = '#00f5d4';
@@ -471,7 +562,148 @@ export class PackageManager {
       ctx.translate(p.currentX, p.currentY - heightOffset);
       ctx.rotate(p.rotation);
 
-      if (p.type === 'PIZZA') {
+      if (p.type === 'ROCKET_PIZZA') {
+        // --- ROCKET PIZZA: SIGNATURE WEAPON OF SPEED ---
+        // Pizza Slice wedge pointing forward
+        ctx.fillStyle = '#f59e0b'; // cheese
+        ctx.beginPath();
+        ctx.moveTo(14, 0); // nose tip
+        ctx.lineTo(-12, -9);
+        ctx.lineTo(-12, 9);
+        ctx.closePath();
+        ctx.fill();
+
+        // Pizza crust
+        ctx.fillStyle = '#b45309';
+        ctx.beginPath();
+        ctx.roundRect(-14, -10, 4, 20, 2);
+        ctx.fill();
+
+        // Pepperoni slices
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.arc(-2, -3, 2.5, 0, Math.PI * 2);
+        ctx.arc(4, 1, 2.5, 0, Math.PI * 2);
+        ctx.arc(-5, 4, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Twin Rocket Thrusters
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(-17, -8, 5, 4);
+        ctx.fillRect(-17, 4, 5, 4);
+
+        // Rocket Flame plume
+        const flamePulse = Math.random() * 4;
+        ctx.fillStyle = '#ff0055';
+        ctx.beginPath();
+        ctx.moveTo(-17, -6);
+        ctx.lineTo(-24 - flamePulse, -6);
+        ctx.lineTo(-17, -4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(-17, 6);
+        ctx.lineTo(-24 - flamePulse, 6);
+        ctx.lineTo(-17, 4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#fee440';
+        ctx.fillRect(-20, -7, 3, 2);
+        ctx.fillRect(-20, 5, 3, 2);
+      } else if (p.type === 'BOUNCY_BOX') {
+        // Yellow-Orange bouncy box with coil spring
+        const size = 18;
+        ctx.fillStyle = '#ffbe0b';
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.strokeStyle = '#fb5607';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        // Bouncy coil bands
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.type === 'GOLDEN_PARCEL') {
+        // Gleaming gold crate
+        const size = 18;
+        const goldGrad = ctx.createLinearGradient(-size / 2, -size / 2, size / 2, size / 2);
+        goldGrad.addColorStop(0, '#ffe49e');
+        goldGrad.addColorStop(0.5, '#ffd700');
+        goldGrad.addColorStop(1, '#b38f00');
+        ctx.fillStyle = goldGrad;
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        // Crown / diamond emblem
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(4, 0);
+        ctx.lineTo(0, 5);
+        ctx.lineTo(-4, 0);
+        ctx.closePath();
+        ctx.fill();
+      } else if (p.type === 'CONFETTI_BOMB') {
+        // Striped party cylinder
+        ctx.fillStyle = '#f72585';
+        ctx.beginPath();
+        ctx.roundRect(-8, -10, 16, 20, 4);
+        ctx.fill();
+        ctx.fillStyle = '#fee440';
+        ctx.fillRect(-8, -3, 16, 6);
+
+        // Spark fuse on top
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(3, -14);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffd166';
+        ctx.beginPath();
+        ctx.arc(3, -14, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'MAGNET_MAIL') {
+        // Electric cyan box with horseshoe magnet
+        const size = 18;
+        ctx.fillStyle = '#0077b6';
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.strokeStyle = '#00b4d8';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        // Horseshoe magnet on top
+        ctx.strokeStyle = '#ff0055';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, Math.PI, 0);
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-6, 0, 3, 3);
+        ctx.fillRect(3, 0, 3, 3);
+      } else if (p.type === 'MYSTERY_PARCEL') {
+        // Deep purple mystery parcel
+        const size = 18;
+        ctx.fillStyle = '#5a189a';
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+        ctx.strokeStyle = '#9d4edd';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        // Question mark
+        ctx.font = 'bold 12px "Fredoka", sans-serif';
+        ctx.fillStyle = '#fee440';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', 0, 0);
+      } else if (p.type === 'PIZZA') {
         // Flat stackable Pizza Box
         const pw = 24;
         const ph = 14;
@@ -480,7 +712,6 @@ export class PackageManager {
         ctx.strokeStyle = '#e63946';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(-pw / 2, -ph / 2, pw, ph);
-        // Pizza slice icon stamp
         ctx.fillStyle = '#e63946';
         ctx.beginPath();
         ctx.moveTo(0, -ph / 2 + 2);
@@ -489,7 +720,6 @@ export class PackageManager {
         ctx.closePath();
         ctx.fill();
       } else if (p.type === 'FRAGILE') {
-        // Purple fragile parcel with yellow caution tape
         const size = 18;
         ctx.fillStyle = '#7209b7';
         ctx.fillRect(-size / 2, -size / 2, size, size);

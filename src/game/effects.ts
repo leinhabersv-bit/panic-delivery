@@ -96,14 +96,14 @@ export class EffectsManager {
     });
   }
 
-  public addPackageTrail(x: number, y: number): void {
+  public addPackageTrail(x: number, y: number, color: string = '#ffd166'): void {
     this.particles.push({
       x,
       y,
       vx: (Math.random() - 0.5) * 18,
       vy: (Math.random() - 0.5) * 18,
       radius: 3 + Math.random() * 3,
-      color: Math.random() > 0.5 ? '#ffd166' : '#ffffff',
+      color,
       alpha: 0.9,
       life: 0,
       maxLife: 0.28,
@@ -112,6 +112,141 @@ export class EffectsManager {
       rotation: Math.random() * Math.PI,
       vRot: (Math.random() - 0.5) * 8,
     });
+  }
+
+  public addRocketExhaust(x: number, y: number, angle: number): void {
+    // Fiery jet exhaust pointing backwards from projectile direction
+    const oppAngle = angle + Math.PI + (Math.random() - 0.5) * 0.4;
+    const speed = 40 + Math.random() * 60;
+    const colors = ['#ff0055', '#ff5400', '#fee440', '#ffffff'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+
+    this.particles.push({
+      x,
+      y,
+      vx: Math.cos(oppAngle) * speed,
+      vy: Math.sin(oppAngle) * speed,
+      radius: 4 + Math.random() * 5,
+      color,
+      alpha: 1.0,
+      life: 0,
+      maxLife: 0.22,
+      drag: 0.86,
+      shape: Math.random() > 0.4 ? 'circle' : 'star',
+      rotation: Math.random() * Math.PI,
+      vRot: (Math.random() - 0.5) * 10,
+    });
+  }
+
+  public addTurboFlame(x: number, y: number, oppAngle: number): void {
+    const angle = oppAngle + (Math.random() - 0.5) * 0.35;
+    const speed = 60 + Math.random() * 90;
+    const colors = ['#00f5d4', '#00bbf9', '#ffffff', '#7209b7'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+
+    this.particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius: 4 + Math.random() * 6,
+      color,
+      alpha: 0.9,
+      life: 0,
+      maxLife: 0.20,
+      drag: 0.85,
+      shape: 'circle',
+      rotation: Math.random() * Math.PI,
+      vRot: (Math.random() - 0.5) * 8,
+    });
+  }
+
+  public addBouncePoof(x: number, y: number): void {
+    this.addScreenShake(0.12);
+    for (let i = 0; i < 14; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 30 + Math.random() * 70;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 3 + Math.random() * 4,
+        color: '#ffbe0b',
+        alpha: 0.85,
+        life: 0,
+        maxLife: 0.35,
+        drag: 0.9,
+        shape: 'circle',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+  }
+
+  public addGoldSparkle(x: number, y: number): void {
+    for (let i = 0; i < 4; i++) {
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 16,
+        y: y + (Math.random() - 0.5) * 16,
+        vx: (Math.random() - 0.5) * 25,
+        vy: (Math.random() - 0.5) * 25,
+        radius: 3 + Math.random() * 4,
+        color: '#ffd700',
+        alpha: 1.0,
+        life: 0,
+        maxLife: 0.4,
+        drag: 0.88,
+        shape: 'star',
+        rotation: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 12,
+      });
+    }
+  }
+
+  public addRocketExplosion(x: number, y: number): void {
+    this.addScreenShake(0.45);
+    this.triggerFlash('#ff0055', 0.35);
+
+    // Blast rings
+    this.particles.push({
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      radius: 16,
+      color: '#fee440',
+      alpha: 1.0,
+      life: 0,
+      maxLife: 0.6,
+      drag: 1.0,
+      shape: 'ring',
+      rotation: 0,
+      vRot: 0,
+    });
+
+    // Harmless pizza & fiery confetti debris explosion
+    const count = 55;
+    const colors = ['#ff0055', '#ff5400', '#fee440', '#ffffff', '#2a9d8f', '#e76f51'];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+      const speed = 120 + Math.random() * 320;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 15,
+        radius: 4 + Math.random() * 6,
+        color: colors[i % colors.length],
+        alpha: 1.0,
+        life: 0,
+        maxLife: 0.8 + Math.random() * 0.4,
+        drag: 0.92,
+        shape: Math.random() > 0.4 ? 'star' : 'square',
+        rotation: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 14,
+      });
+    }
   }
 
   public addDeliveryBurst(x: number, y: number, color: string = '#00f5d4'): void {

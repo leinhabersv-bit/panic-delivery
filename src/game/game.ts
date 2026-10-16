@@ -9,6 +9,8 @@ import { PackageManager, PackageResolution } from './package.ts';
 import { EffectsManager } from './effects.ts';
 import { TemporaryHUD } from './hud.ts';
 import { LivingCityManager } from './living_city.ts';
+import { EventManager } from './events.ts';
+import { DeliveryType } from './types.ts';
 
 export class Game {
   public readonly canvas: HTMLCanvasElement;
@@ -23,6 +25,7 @@ export class Game {
   private effects: EffectsManager;
   private hud: TemporaryHUD;
   private livingCity: LivingCityManager;
+  private events: EventManager;
 
   private state: GameState;
 
@@ -51,6 +54,7 @@ export class Game {
     this.effects = new EffectsManager();
     this.hud = new TemporaryHUD();
     this.livingCity = new LivingCityManager(this.map);
+    this.events = new EventManager();
 
     this.state = this.createInitialState();
 
@@ -124,6 +128,13 @@ export class Game {
       isFinalRush: false,
       highScore: savedHighScore,
       bestCombo: savedBestCombo,
+
+      // Maximum 2.5D Ultimate
+      turboMeter: 0,
+      isTurboActive: false,
+      turboTimeLeft: 0,
+      driftStylePoints: 0,
+      activeEvent: null,
     };
   }
 
@@ -150,6 +161,7 @@ export class Game {
     this.targets.reset();
     this.packages.reset();
     this.livingCity.reset();
+    this.events.reset();
     this.effects.clear();
     this.effects.addScorePopup(2300, 1740, 'LET\'S DELIVER!', '#00f5d4');
     this.effects.triggerFlash('#00f5d4', 0.25);
@@ -223,7 +235,10 @@ export class Game {
       }
     }
 
-    // 3. Van Physics & Collision
+    // 3. Dynamic Arcade Events Director Update
+    this.state.activeEvent = this.events.update(dt, this.state.timeLeft, this.sound, this.effects);
+
+    // 4. Van Physics & Collision
     const collisionResult = this.van.update(
       dt,
       this.input.up,
@@ -239,10 +254,44 @@ export class Game {
     const speedRatio = this.van.speed / GAME_CONFIG.VAN.MAX_FORWARD_SPEED;
     this.sound.updateEngine(speedRatio, this.van.isDrifting);
 
-    // Hard crash breaks combo
+    // Turbo Meter accumulation & auto-activation
+    if (this.van.isDrifting) {
+      const feverMult = this.state.activeEvent?.type === 'TURBO_FEVER' ? 2.5 : 1.0;
+      const driftGain = GAME_CONFIG.TURBO.DRIFT_CHARGE_RATE * collisionResult.driftQuality * feverMult * dt;
+      this.state.turboMeter = Math.min(100, this.state.turboMeter + driftGain);
+      this.state.driftStylePoints += Math.round(collisionResult.driftQuality * 15 * dt * 60);
+    } else if (Math.abs(this.van.speed) > 280) {
+      this.state.turboMeter = Math.min(100, this.state.turboMeter + GAME_CONFIG.TURBO.CRUISE_CHARGE_RATE * dt);
+    }
+
+    if (this.state.turboMeter >= 100 && !this.state.isTurboActive) {
+      this.state.isTurboActive = true;
+      this.state.turboTimeLeft = GAME_CONFIG.TURBO.DURATION_SECONDS;
+      this.state.turboMeter = 0;
+      this.van.isTurboActive = true;
+      this.sound.playTurbo();
+      this.effects.triggerFlash('#00f5d4', 0.35);
+      this.effects.addScorePopup(this.van.x, this.van.y - 40, '🔥 TURBO BOOST! 🔥', '#00f5d4');
+    }
+
+    if (this.state.isTurboActive) {
+      this.state.turboTimeLeft -= dt;
+      this.van.isTurboActive = true;
+      this.effects.addScreenShake(0.04 * dt);
+      if (this.state.turboTimeLeft <= 0) {
+        this.state.isTurboActive = false;
+        this.van.isTurboActive = false;
+      }
+    }
+
+    // Hard crash breaks combo & turbo
     if (collisionResult.crashed) {
       this.state.crashes++;
       this.sound.playCrash();
+      if (this.state.isTurboActive) {
+        this.state.isTurboActive = false;
+        this.van.isTurboActive = false;
+      }
       if (this.state.combo > 1) {
         this.state.combo = 1;
         this.state.comboTimeLeft = 0;
@@ -346,6 +395,9 @@ export class Game {
       if (this.state.isFinalRush) {
         multiplier *= 2; // Final rush double score bonus
       }
+      if (this.state.activeEvent) {
+        multiplier = Math.round(multiplier * this.state.activeEvent.scoreMultiplier);
+      }
 
       const totalPoints = res.points * multiplier;
       this.state.score += totalPoints;
@@ -359,6 +411,13 @@ export class Game {
       if (res.wasMoving) {
         popupText += ' 🚗 MOVING BONUS!';
       }
+      if (res.deliveryType === 'ROCKET_PIZZA') {
+        popupText += ' 🚀 ROCKET STRIKE!';
+      } else if (res.deliveryType === 'GOLDEN_PARCEL') {
+        popupText += ' 👑 ROYAL BONUS!';
+      } else if (res.deliveryType === 'BOUNCY_BOX') {
+        popupText += ' 🏀 TRICK SHOT!';
+      }
       if (this.state.isFinalRush) {
         popupText += ' ⚡ 2X RUSH!';
       }
@@ -366,7 +425,8 @@ export class Game {
         popupText += ` x${this.state.combo}`;
       }
 
-      const popupColor = res.deliveryType === 'PIZZA' ? '#f97316' : res.deliveryType === 'FRAGILE' ? '#d946ef' : '#00f5d4';
+      const typeDef = GAME_CONFIG.DELIVERY_TYPES[res.deliveryType] || GAME_CONFIG.DELIVERY_TYPES.EXPRESS;
+      const popupColor = typeDef.color;
       this.effects.addScorePopup(res.x, res.y - 25, popupText, popupColor);
       this.state.lastScoreEvent = {
         points: totalPoints,
@@ -420,13 +480,37 @@ export class Game {
       // Route sequencing: spawn replacement target reachable from current delivered spot
       this.targets.markDelivered(res.target.id, { x: res.x, y: res.y });
 
-      // Cycle next active delivery variety to match next closest target
-      const remainingTargets = this.targets.targets.filter((t) => t.active);
-      if (remainingTargets.length > 0) {
-        const nextTarget = remainingTargets[0];
-        this.state.currentDeliveryType = nextTarget.type;
-        this.van.currentDeliveryType = nextTarget.type;
+      // Intelligent special package rotation:
+      // In Pizza Panic: always Rocket Pizza
+      // In Golden Minute: always Golden Parcel
+      // Otherwise: roll weighted special or match next target
+      let nextType: DeliveryType = 'EXPRESS';
+      if (this.state.activeEvent?.type === 'PIZZA_PANIC') {
+        nextType = 'ROCKET_PIZZA';
+      } else if (this.state.activeEvent?.type === 'GOLDEN_MINUTE') {
+        nextType = 'GOLDEN_PARCEL';
+      } else {
+        const roll = Math.random();
+        if (roll < 0.22) {
+          nextType = 'ROCKET_PIZZA';
+        } else if (roll < 0.38) {
+          nextType = 'BOUNCY_BOX';
+        } else if (roll < 0.52) {
+          nextType = 'GOLDEN_PARCEL';
+        } else if (roll < 0.65) {
+          nextType = 'CONFETTI_BOMB';
+        } else if (roll < 0.77) {
+          nextType = 'MAGNET_MAIL';
+        } else if (roll < 0.88) {
+          nextType = 'MYSTERY_PARCEL';
+        } else {
+          const remainingTargets = this.targets.targets.filter((t) => t.active);
+          nextType = remainingTargets.length > 0 ? remainingTargets[0].type : 'PIZZA';
+        }
       }
+
+      this.state.currentDeliveryType = nextType;
+      this.van.currentDeliveryType = nextType;
     } else {
       this.state.misses++;
       let missText = 'MISSED!';

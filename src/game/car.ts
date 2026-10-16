@@ -1,11 +1,13 @@
 import { GAME_CONFIG } from './config.ts';
 import { BuildingTile } from './map.ts';
 import { EffectsManager } from './effects.ts';
-import { Point } from './types.ts';
+import { Point, DeliveryType } from './types.ts';
 
 export interface CarCollisionResult {
   crashed: boolean;
   impactSpeed: number;
+  driftTime: number;
+  driftQuality: number;
 }
 
 export class DeliveryVan {
@@ -17,15 +19,17 @@ export class DeliveryVan {
   public steerAngle: number = 0;
   public isDrifting: boolean = false;
   public isBraking: boolean = false;
+  public isTurboActive: boolean = false;
 
   public width: number = GAME_CONFIG.VAN.WIDTH;
   public height: number = GAME_CONFIG.VAN.HEIGHT;
-  public currentDeliveryType: 'PIZZA' | 'EXPRESS' | 'FRAGILE' = 'EXPRESS';
+  public currentDeliveryType: DeliveryType = 'EXPRESS';
 
   // Visual polish fields
   public bodyRoll: number = 0;
   private cargoWobble: number = 0;
   private exhaustTimer: number = 0;
+  private currentDriftDuration: number = 0;
 
   // Previous tire positions for skid marks
   private lastLeftTire: Point | null = null;
@@ -46,9 +50,11 @@ export class DeliveryVan {
     this.steerAngle = 0;
     this.isDrifting = false;
     this.isBraking = false;
+    this.isTurboActive = false;
     this.bodyRoll = 0;
     this.cargoWobble = 0;
     this.exhaustTimer = 0;
+    this.currentDriftDuration = 0;
     this.lastLeftTire = null;
     this.lastRightTire = null;
   }
@@ -65,30 +71,44 @@ export class DeliveryVan {
   ): CarCollisionResult {
     const cfg = GAME_CONFIG.VAN;
 
+    // Apply Turbo multipliers if active
+    const maxForward = this.isTurboActive
+      ? cfg.MAX_FORWARD_SPEED * GAME_CONFIG.TURBO.SPEED_MULTIPLIER
+      : cfg.MAX_FORWARD_SPEED;
+    const accelRate = this.isTurboActive
+      ? cfg.ACCELERATION * GAME_CONFIG.TURBO.ACCEL_MULTIPLIER
+      : cfg.ACCELERATION;
+
     // 1. STEERING INPUT (Speed-Aware & High-Speed Damped)
     let steerInput = 0;
     if (left) steerInput -= 1;
     if (right) steerInput += 1;
 
-    // High-speed steering stability: smoothly taper max steer angle at top speed to prevent oversteer
-    const speedFraction = Math.min(1.0, Math.abs(this.speed) / cfg.MAX_FORWARD_SPEED);
-    const maxSteerLimit = 0.65 - speedFraction * 0.22; // 0.65 at low speed, 0.43 at top speed
+    const speedFraction = Math.min(1.0, Math.abs(this.speed) / maxForward);
+    const maxSteerLimit = 0.65 - speedFraction * 0.22;
     const targetSteer = steerInput * maxSteerLimit;
 
     // Responsive steering interpolation
     this.steerAngle += (targetSteer - this.steerAngle) * Math.min(1.0, dt * 26);
 
     // 2. DRIFT & BRAKE STATES
-    // Drift requires deliberate forward movement (> 70 px/s) and holding Z
     this.isDrifting = driftKey && this.speed > 70;
     this.isBraking = down && this.speed > 25;
 
-    // 3. ACCELERATION & BRAKING (Predictable & Crisp)
+    let driftQuality = 0;
+    if (this.isDrifting) {
+      this.currentDriftDuration += dt;
+      driftQuality = Math.min(1.0, Math.abs(this.steerAngle) * 1.5) * (Math.abs(this.speed) / cfg.MAX_FORWARD_SPEED);
+    } else {
+      this.currentDriftDuration = 0;
+    }
+
+    // 3. ACCELERATION & BRAKING
     if (up) {
       if (this.speed < 0) {
         this.speed += cfg.BRAKE_FORCE * dt;
       } else {
-        this.speed += cfg.ACCELERATION * dt;
+        this.speed += accelRate * dt;
       }
     } else if (down) {
       if (this.speed > 0) {
@@ -97,18 +117,16 @@ export class DeliveryVan {
         this.speed -= cfg.REVERSE_ACCEL * dt;
       }
     } else {
-      // Clean deceleration on arrow release (zero sticky momentum)
       this.speed *= Math.pow(cfg.NATURAL_FRICTION, dt * 60);
       if (Math.abs(this.speed) < 4) this.speed = 0;
     }
 
     // Strict speed limits
-    this.speed = Math.max(-cfg.MAX_REVERSE_SPEED, Math.min(cfg.MAX_FORWARD_SPEED, this.speed));
+    this.speed = Math.max(-cfg.MAX_REVERSE_SPEED, Math.min(maxForward, this.speed));
 
     // 4. NORMAL CORNERING vs DRIFTING
-    // Low-speed turning authority guaranteed at 0.55 so vehicle never feels sluggish in corners
     const turningAuthority = Math.max(0.55, Math.min(1.0, Math.abs(this.speed) / 140));
-    const direction = this.speed < -5 ? -1 : 1; // Invert in reverse for natural backing up
+    const direction = this.speed < -5 ? -1 : 1;
     const driftMultiplier = this.isDrifting ? cfg.DRIFT_TURN_MULTIPLIER : 1.0;
     const turnAmount = this.steerAngle * cfg.STEER_SPEED * turningAuthority * direction * driftMultiplier * dt;
     this.angle += turnAmount;
@@ -120,13 +138,11 @@ export class DeliveryVan {
     const rightY = Math.cos(this.angle);
 
     if (this.isDrifting) {
-      // Controlled arcade slide with forward momentum retention
       this.speed *= Math.pow(cfg.DRIFT_SPEED_RETENTION, dt * 60);
       this.lateralVelocity += turnAmount * 50 * (this.speed * 0.10);
       this.lateralVelocity *= Math.pow(cfg.DRIFT_LATERAL_GRIP, dt * 60);
       this.lateralVelocity = Math.max(-110, Math.min(110, this.lateralVelocity));
     } else {
-      // Instant drift recovery: upon releasing Z, lateral slip is instantly extinguished
       this.lateralVelocity *= Math.pow(0.15, dt * 60);
       if (Math.abs(this.lateralVelocity) < 1) this.lateralVelocity = 0;
     }
@@ -139,12 +155,19 @@ export class DeliveryVan {
     this.y += moveY;
 
     // Visual roll & parcel wobbles
-    const targetRoll = (this.steerAngle * (this.isDrifting ? 0.18 : 0.08)) * (Math.abs(this.speed) / cfg.MAX_FORWARD_SPEED);
+    const targetRoll = (this.steerAngle * (this.isDrifting ? 0.18 : 0.08)) * (Math.abs(this.speed) / maxForward);
     this.bodyRoll += (targetRoll - this.bodyRoll) * Math.min(1.0, dt * 14);
     this.cargoWobble += (Math.sin(Date.now() * 0.015) * (Math.abs(this.speed) / 250) - this.cargoWobble) * dt * 8;
 
-    // Exhaust smoke puffs when accelerating
-    if (up && this.speed > 50) {
+    // Turbo flame exhaust puffs
+    if (this.isTurboActive) {
+      const cosA = Math.cos(this.angle);
+      const sinA = Math.sin(this.angle);
+      const rearX = this.x - cosA * (this.height * 0.5);
+      const rearY = this.y - sinA * (this.height * 0.5);
+      effects.addTurboFlame(rearX - sinA * 8, rearY + cosA * 8, this.angle + Math.PI);
+      effects.addTurboFlame(rearX + sinA * 8, rearY - cosA * 8, this.angle + Math.PI);
+    } else if (up && this.speed > 50) {
       this.exhaustTimer += dt;
       if (this.exhaustTimer > 0.08) {
         this.exhaustTimer = 0;
@@ -160,7 +183,7 @@ export class DeliveryVan {
     this.handleTireEffects(dt, effects);
 
     // 6. WALL RECOVERY & COLLISION
-    return this.resolveCollisions(buildings, effects);
+    return this.resolveCollisions(buildings, effects, this.currentDriftDuration, driftQuality);
   }
 
   private handleTireEffects(dt: number, effects: EffectsManager): void {
@@ -216,7 +239,12 @@ export class DeliveryVan {
     }));
   }
 
-  private resolveCollisions(buildings: BuildingTile[], effects: EffectsManager): CarCollisionResult {
+  private resolveCollisions(
+    buildings: BuildingTile[],
+    effects: EffectsManager,
+    driftTime: number,
+    driftQuality: number
+  ): CarCollisionResult {
     let crashed = false;
     const impactSpeed = Math.abs(this.speed);
 
@@ -264,7 +292,7 @@ export class DeliveryVan {
       }
     }
 
-    return { crashed, impactSpeed };
+    return { crashed, impactSpeed, driftTime, driftQuality };
   }
 
   public render(ctx: CanvasRenderingContext2D): void {
@@ -293,6 +321,18 @@ export class DeliveryVan {
     ctx.lineTo(14, -this.height * 0.45);
     ctx.closePath();
     ctx.fill();
+
+    // Turbo Underglow Aura
+    if (this.isTurboActive) {
+      const glow = ctx.createRadialGradient(0, 0, 10, 0, 0, this.height * 0.85);
+      glow.addColorStop(0, 'rgba(0, 245, 212, 0.55)');
+      glow.addColorStop(0.5, 'rgba(67, 97, 238, 0.35)');
+      glow.addColorStop(1, 'rgba(0, 245, 212, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.height * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Wheels
     const wheelW = 7;
@@ -400,8 +440,77 @@ export class DeliveryVan {
     ctx.translate(0, this.cargoWobble);
 
     const deliveryType = this.currentDeliveryType;
-    if (deliveryType === 'PIZZA') {
-      // Stack of round/square pizza boxes
+    if (deliveryType === 'ROCKET_PIZZA') {
+      // Rocket Pizza with miniature rocket boosters on roof
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.moveTo(0, -9);
+      ctx.lineTo(-9, 7);
+      ctx.lineTo(9, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(0, -1, 3, 0, Math.PI * 2);
+      ctx.arc(-3, 4, 2.5, 0, Math.PI * 2);
+      ctx.arc(3, 4, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Mini rocket thrusters
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillRect(-10, 7, 4, 5);
+      ctx.fillRect(6, 7, 4, 5);
+      ctx.fillStyle = '#ff0055';
+      ctx.fillRect(-9, 12, 2, 3);
+      ctx.fillRect(7, 12, 2, 3);
+    } else if (deliveryType === 'GOLDEN_PARCEL') {
+      // Golden Crown crate
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-10, -5, 20, 15);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-3, 0, 6, 5);
+    } else if (deliveryType === 'BOUNCY_BOX') {
+      // Bouncy orange box
+      ctx.fillStyle = '#ffbe0b';
+      ctx.fillRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#fb5607';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#ffffff';
+      ctx.strokeRect(-5, -2, 10, 9);
+    } else if (deliveryType === 'CONFETTI_BOMB') {
+      // Party Bomb
+      ctx.fillStyle = '#f72585';
+      ctx.fillRect(-9, -6, 18, 16);
+      ctx.fillStyle = '#fee440';
+      ctx.fillRect(-9, -1, 18, 5);
+    } else if (deliveryType === 'MAGNET_MAIL') {
+      // Cyan magnet crate
+      ctx.fillStyle = '#0077b6';
+      ctx.fillRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#00b4d8';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 2, 4, Math.PI, 0);
+      ctx.stroke();
+    } else if (deliveryType === 'MYSTERY_PARCEL') {
+      // Mystery purple box
+      ctx.fillStyle = '#5a189a';
+      ctx.fillRect(-10, -5, 20, 15);
+      ctx.strokeStyle = '#9d4edd';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-10, -5, 20, 15);
+      ctx.font = 'bold 11px "Fredoka", sans-serif';
+      ctx.fillStyle = '#fee440';
+      ctx.textAlign = 'center';
+      ctx.fillText('?', 0, 6);
+    } else if (deliveryType === 'PIZZA') {
+      // Stack of pizza boxes
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(-11, -6, 22, 16);
       ctx.strokeStyle = '#dc2626';
@@ -412,20 +521,17 @@ export class DeliveryVan {
       ctx.arc(0, 2, 4, 0, Math.PI * 2);
       ctx.fill();
 
-      // Second top box
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-9, -4, 18, 12);
       ctx.strokeStyle = '#16a34a';
       ctx.lineWidth = 1;
       ctx.strokeRect(-9, -4, 18, 12);
     } else if (deliveryType === 'FRAGILE') {
-      // Fragile glass/crystal crate
       ctx.fillStyle = '#9333ea';
       ctx.fillRect(-10, -5, 20, 15);
       ctx.strokeStyle = '#f43f5e';
       ctx.lineWidth = 1.2;
       ctx.strokeRect(-10, -5, 20, 15);
-      // Warning glass symbol
       ctx.fillStyle = '#fbbf24';
       ctx.fillRect(-3, 0, 6, 6);
       ctx.fillStyle = '#ffffff';

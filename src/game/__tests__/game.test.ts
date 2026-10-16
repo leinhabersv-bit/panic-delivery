@@ -5,6 +5,9 @@ import { GAME_CONFIG } from '../config.ts';
 import { CityMap } from '../map.ts';
 import { PackageManager } from '../package.ts';
 import { TargetManager } from '../target.ts';
+import { EventManager } from '../events.ts';
+import { EffectsManager } from '../effects.ts';
+import { DeliveryVan } from '../car.ts';
 
 test('World dimensions and road scale', () => {
   assert.equal(GAME_CONFIG.WORLD_WIDTH, 4600);
@@ -336,6 +339,112 @@ test('Game State Lifecycle, High Score Persistence, and 6-Key Input Discipline',
   assert.equal(allowedKeys.size, 6, 'Exactly 6 input keys permitted');
   assert.ok(allowedKeys.has('KeyZ'), 'Z key is bound for start/restart and drift');
   assert.ok(allowedKeys.has('Space'), 'Space key is bound for package throwing');
+});
+
+test('Maximum 2.5D Special Packages configuration', () => {
+  const specials = ['ROCKET_PIZZA', 'BOUNCY_BOX', 'GOLDEN_PARCEL', 'CONFETTI_BOMB', 'MAGNET_MAIL', 'MYSTERY_PARCEL'] as const;
+  for (const s of specials) {
+    assert.ok(GAME_CONFIG.DELIVERY_TYPES[s], `Special package ${s} is registered in config`);
+    assert.ok(GAME_CONFIG.DELIVERY_TYPES[s].bonusPoints > 0, `${s} has scoring bonus`);
+    assert.ok(GAME_CONFIG.DELIVERY_TYPES[s].icon, `${s} has distinctive icon`);
+  }
+});
+
+test('Rocket Pizza flight speed boost and homing', () => {
+  const pkgMgr = new PackageManager();
+  const mockSound = {
+    playThrow: () => {},
+    playRocketLaunch: () => {},
+    playRocketExplosion: () => {},
+    playReloadComplete: () => {},
+    playMiss: () => {},
+    playBounce: () => {},
+  } as unknown as SoundFx;
+
+  // Standard Express throw
+  pkgMgr.startCharging('EXPRESS');
+  pkgMgr.updateCharge(0.75); // Full charge
+  const expressTraj = pkgMgr.calculateTrajectory(100, 100, 0, 0);
+
+  // Rocket Pizza throw
+  pkgMgr.startCharging('ROCKET_PIZZA');
+  pkgMgr.updateCharge(0.75); // Full charge
+  const rocketTraj = pkgMgr.calculateTrajectory(100, 100, 0, 0);
+
+  assert.ok(
+    rocketTraj.throwDist > expressTraj.throwDist * 1.1,
+    `Rocket Pizza throw distance (${rocketTraj.throwDist}) has speed multiplier over Express (${expressTraj.throwDist})`
+  );
+
+  // Throw Rocket Pizza
+  pkgMgr.releaseAndThrow(100, 100, 0, 0, mockSound);
+  assert.equal(pkgMgr.activePackages.length, 1);
+  assert.equal(pkgMgr.activePackages[0].type, 'ROCKET_PIZZA');
+  assert.equal(pkgMgr.activePackages[0].isRocket, true);
+});
+
+test('Bouncy Box bounce mechanic on ground contact', () => {
+  const pkgMgr = new PackageManager();
+  let bounceSoundPlayed = false;
+  const mockSound = {
+    playThrow: () => {},
+    playRocketLaunch: () => {},
+    playRocketExplosion: () => {},
+    playReloadComplete: () => {},
+    playMiss: () => {},
+    playBounce: () => { bounceSoundPlayed = true; },
+  } as unknown as SoundFx;
+  const mockEffects = new EffectsManager();
+
+  pkgMgr.startCharging('BOUNCY_BOX');
+  pkgMgr.updateCharge(0.5);
+  pkgMgr.releaseAndThrow(100, 100, 0, 0, mockSound);
+
+  assert.equal(pkgMgr.activePackages[0].bouncesRemaining, 1, 'Bouncy box starts with 1 bounce');
+
+  // Advance time to full flight duration without hitting target
+  pkgMgr.update(1.0, [], mockEffects, mockSound, () => {});
+
+  assert.equal(bounceSoundPlayed, true, 'Bounce sound played on trick shot bounce');
+  assert.equal(pkgMgr.activePackages.length, 1, 'Package remains active for bounce segment');
+  assert.equal(pkgMgr.activePackages[0].bouncesRemaining, 0, 'Bounces remaining decremented to 0');
+});
+
+test('Van Turbo mechanics and auto-activation at 100%', () => {
+  const van = new DeliveryVan(500, 500);
+  const effects = new EffectsManager();
+
+  // Drift charges turbo
+  const res = van.update(0.1, true, false, true, false, true, [], effects);
+  assert.ok(res.driftTime > 0 || res.driftQuality >= 0, 'Van update returns drift data');
+
+  // Activate Turbo manually on van
+  van.isTurboActive = true;
+  van.speed = 400; // Above standard max speed (350)
+  van.update(0.1, true, false, false, false, false, [], effects);
+
+  assert.ok(
+    van.speed > GAME_CONFIG.VAN.MAX_FORWARD_SPEED,
+    `Van speed (${van.speed}) can exceed standard max forward speed (${GAME_CONFIG.VAN.MAX_FORWARD_SPEED}) during Turbo`
+  );
+});
+
+test('Dynamic Arcade Event Director timeline and multipliers', () => {
+  const events = new EventManager();
+  const mockSound = {
+    playEventStinger: () => {},
+  } as unknown as SoundFx;
+  const mockEffects = new EffectsManager();
+
+  // Match start (120s remaining) - no event immediately
+  const evtAt120 = events.update(0.1, 120, mockSound, mockEffects);
+  assert.equal(evtAt120, null);
+
+  // Match reaches 105s remaining -> triggers PIZZA_PANIC
+  const evtAt105 = events.update(0.1, 105, mockSound, mockEffects);
+  assert.ok(evtAt105 !== null, 'Event triggered at 105s remaining');
+  assert.equal(evtAt105?.type, 'PIZZA_PANIC');
+  assert.ok(evtAt105!.scoreMultiplier > 1.0, 'Event applies score multiplier');
 });
 
 

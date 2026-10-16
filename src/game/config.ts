@@ -28,41 +28,51 @@ export const GAME_CONFIG = {
     CRASH_MIN_SPEED_TO_BREAK_COMBO: 180, // forgiving on minor scrapes
   },
 
-  // Hold-to-Charge Package Throwing (Phase 3)
+  // Hold-to-Charge Package Throwing
   PACKAGES: {
     MAX_CAPACITY: 5,
     RELOAD_TIME_SECONDS: 1.2,
-    THROW_COOLDOWN_SECONDS: 0.35, // Rate limit / debounce between throws
-    AUTO_REPLENISH_SECONDS: 2.0,  // Forgiving auto replenishment so player is never stranded
-    CHARGE_DURATION_SECONDS: 0.8, // Maximum charge reached in 0.8s
+    THROW_COOLDOWN_SECONDS: 0.30, // Rate limit / debounce between throws
+    AUTO_REPLENISH_SECONDS: 1.8,  // Forgiving auto replenishment so player is never stranded
+    CHARGE_DURATION_SECONDS: 0.75,// Maximum charge reached in 0.75s
     MAX_CHARGE_HOLD_SECONDS: 2.2, // Auto-release if held past this limit to prevent indefinite hold exploit
-    MIN_THROW_SPEED: 380,         // Short tap throw distance (~210px)
-    MAX_THROW_SPEED: 820,         // Full charge sniper distance (~450-500px)
+    MIN_THROW_SPEED: 390,         // Short tap throw distance (~210px)
+    MAX_THROW_SPEED: 840,         // Full charge sniper distance (~450-500px)
     FLIGHT_TIME: 0.55,            // seconds in air
-    HIT_RADIUS_TOLERANCE: 52,     // forgiving collision radius with target
+    HIT_RADIUS_TOLERANCE: 56,     // forgiving collision radius with target
     LONG_DISTANCE_THRESHOLD: 280, // distance threshold for sniper score
     LONG_DISTANCE_BONUS: 200,
-    MOVING_DELIVERY_MIN_SPEED: 55,// Minimum van speed (px/s) for moving delivery bonus
+    MOVING_DELIVERY_MIN_SPEED: 50,// Minimum van speed (px/s) for moving delivery bonus
     MOVING_DELIVERY_BONUS: 100,   // Bonus points for landing a moving delivery
     BASE_POINTS: 100,
   },
 
-  // Delivery Types (Phase 4)
+  // Turbo & Style System
+  TURBO: {
+    MAX_METER: 100,
+    DRIFT_CHARGE_RATE: 45,     // meter units per second of drift
+    CRUISE_CHARGE_RATE: 12,    // meter units per second at top speed
+    DURATION_SECONDS: 4.5,     // duration of auto-triggered Turbo boost
+    SPEED_MULTIPLIER: 1.35,    // 35% speed boost (up to ~475 px/s)
+    ACCEL_MULTIPLIER: 2.0,     // Instant arcade punch
+  },
+
+  // Delivery Types & Special Packages (Maximum 2.5D)
   DELIVERY_TYPES: {
-    PIZZA: {
-      name: 'PIZZA DELIVERY',
-      color: '#ff5400',
-      badgeColor: '#ff3366',
-      icon: '🍕',
-      bonusText: 'HOT & FRESH!',
-      bonusPoints: 150,
-    },
     EXPRESS: {
       name: 'EXPRESS PARCEL',
       color: '#00f5d4',
       badgeColor: '#3a86ff',
       icon: '📦',
       bonusText: 'SNIPER SHOT!',
+      bonusPoints: 150,
+    },
+    PIZZA: {
+      name: 'PIZZA DELIVERY',
+      color: '#ff5400',
+      badgeColor: '#ff3366',
+      icon: '🍕',
+      bonusText: 'HOT & FRESH!',
       bonusPoints: 200,
     },
     FRAGILE: {
@@ -72,6 +82,57 @@ export const GAME_CONFIG = {
       icon: '🏺',
       bonusText: 'PERFECT TOUCH!',
       bonusPoints: 250,
+    },
+    ROCKET_PIZZA: {
+      name: 'ROCKET PIZZA 🚀',
+      color: '#ff0055',
+      badgeColor: '#fee440',
+      icon: '🚀',
+      bonusText: 'ROCKET STRIKE!',
+      bonusPoints: 350,
+      flightSpeedMultiplier: 1.4,
+      homingRange: 160,
+    },
+    BOUNCY_BOX: {
+      name: 'BOUNCY BOX 🏀',
+      color: '#ffbe0b',
+      badgeColor: '#fb5607',
+      icon: '📦',
+      bonusText: 'TRICK BOUNCE!',
+      bonusPoints: 220,
+    },
+    GOLDEN_PARCEL: {
+      name: 'GOLDEN PARCEL 👑',
+      color: '#ffd700',
+      badgeColor: '#ffb703',
+      icon: '👑',
+      bonusText: 'ROYAL DELIVERY!',
+      bonusPoints: 500,
+    },
+    CONFETTI_BOMB: {
+      name: 'CONFETTI BOMB 🎉',
+      color: '#f72585',
+      badgeColor: '#7209b7',
+      icon: '🎉',
+      bonusText: 'FESTIVAL BLAST!',
+      bonusPoints: 300,
+    },
+    MAGNET_MAIL: {
+      name: 'MAGNET MAIL 🧲',
+      color: '#4cc9f0',
+      badgeColor: '#4361ee',
+      icon: '🧲',
+      bonusText: 'MAGNETIC LOCK!',
+      bonusPoints: 260,
+      pullRadius: 90,
+    },
+    MYSTERY_PARCEL: {
+      name: 'MYSTERY PARCEL ❓',
+      color: '#8338ec',
+      badgeColor: '#3a86ff',
+      icon: '❓',
+      bonusText: 'JACKPOT DELIVERY!',
+      bonusPoints: 320,
     },
   },
 
