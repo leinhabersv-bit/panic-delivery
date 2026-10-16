@@ -9,10 +9,12 @@ import { PackageManager, PackageResolution } from './package.ts';
 import { EffectsManager } from './effects.ts';
 import { TemporaryHUD } from './hud.ts';
 import { LivingCityManager } from './living_city.ts';
+import { ThreeRenderer } from './three_renderer.ts';
 
 export class Game {
   public readonly canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private threeRenderer?: ThreeRenderer;
 
   private input: InputHandler;
   private sound: SoundFx;
@@ -36,7 +38,7 @@ export class Game {
   private lastTime: number = 0;
   private isRunning: boolean = false;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, threeCanvas?: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not get 2D canvas context');
@@ -51,6 +53,14 @@ export class Game {
     this.effects = new EffectsManager();
     this.hud = new TemporaryHUD();
     this.livingCity = new LivingCityManager(this.map);
+
+    if (threeCanvas) {
+      try {
+        this.threeRenderer = new ThreeRenderer(threeCanvas, this.map);
+      } catch (err) {
+        console.warn('Three.js WebGL initialization fallback to 2.5D Canvas:', err);
+      }
+    }
 
     this.state = this.createInitialState();
 
@@ -465,6 +475,46 @@ export class Game {
 
     // Apply Screen Shake
     ctx.translate(this.effects.shakeOffsetX, this.effects.shakeOffsetY);
+
+    // If 3D Three.js renderer is active, drive the full 3D miniature city scene!
+    if (this.threeRenderer) {
+      const aimingIndicator = this.packages.getAimingIndicator(
+        this.van.x,
+        this.van.y,
+        this.van.angle,
+        this.van.speed,
+        this.targets.targets
+      );
+      this.threeRenderer.update(
+        this.van,
+        this.targets.targets,
+        this.packages.activePackages,
+        aimingIndicator,
+        this.livingCity,
+        this.state.activeCelebration
+      );
+
+      // Render 2D juice particles & popups over 3D world
+      ctx.save();
+      ctx.translate(-this.cameraX, -this.cameraY);
+      this.effects.renderParticles(ctx);
+      this.effects.renderFloatingTexts(ctx);
+      ctx.restore();
+
+      // Final Rush edge pulse overlay
+      if (this.state.isFinalRush) {
+        const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
+        ctx.strokeStyle = `rgba(239, 68, 68, ${0.2 + pulse * 0.25})`;
+        ctx.lineWidth = 10;
+        ctx.strokeRect(0, 0, viewW, viewH);
+      }
+
+      this.effects.renderSpeedStreaks(ctx);
+      this.effects.renderFlash(ctx, viewW, viewH);
+      this.hud.render(ctx, this.state, this.van.x, this.van.y, this.targets.targets, this.cameraX, this.cameraY);
+      ctx.restore();
+      return;
+    }
 
     if (this.state.phase === 'MENU') {
       ctx.save();

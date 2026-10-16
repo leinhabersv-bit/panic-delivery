@@ -35,16 +35,30 @@
         overflow: hidden;
         background: #111420;
       }
-      canvas {
-        display: block;
+      #three-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
         width: 100%;
         height: 100%;
-        image-rendering: auto;
+        display: block;
+        z-index: 1;
+      }
+      #game-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        z-index: 2;
+        pointer-events: none;
       }
     </style>
   </head>
   <body>
     <div id="game-container">
+      <canvas id="three-canvas" width="1280" height="720"></canvas>
       <canvas id="game-canvas" width="1280" height="720"></canvas>
     </div>
     <script type="module" src="/src/main.ts"></script>
