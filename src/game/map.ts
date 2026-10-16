@@ -23,6 +23,9 @@ export interface BuildingTile extends Rect {
   hasAwning?: boolean;
   awningColor?: string;
   roofType?: 'helipad' | 'ac' | 'water_tower' | 'solar';
+  celebrationTimer?: number;
+  celebrationLevel?: 1 | 2 | 3;
+  celebrationColor?: string;
 }
 
 export interface TreeProp {
@@ -50,6 +53,11 @@ export interface TrafficLane {
   angle: number;
 }
 
+export interface DeliverySpot extends Point {
+  buildingName?: string;
+  district?: DistrictType;
+}
+
 export class CityMap {
   public width: number = GAME_CONFIG.WORLD_WIDTH;
   public height: number = GAME_CONFIG.WORLD_HEIGHT;
@@ -57,7 +65,7 @@ export class CityMap {
   public buildings: BuildingTile[] = [];
   public trees: TreeProp[] = [];
   public props: EnvironmentalProp[] = [];
-  public deliverySpots: Point[] = [];
+  public deliverySpots: DeliverySpot[] = [];
   public sidewalkSegments: SidewalkSegment[] = [];
   public trafficLanes: TrafficLane[] = [];
 
@@ -189,10 +197,15 @@ export class CityMap {
         }
       }
 
-      // Delivery spots along curbs
-      this.deliverySpots.push({ x: bx - 45, y: by + bh / 2 });
-      this.deliverySpots.push({ x: bx + bw / 2, y: by - 45 });
-      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh / 2 });
+      // Delivery spots along curbs with landmark bindings
+      this.deliverySpots.push({ x: bx - 45, y: by + bh * 0.35, buildingName: housePalettes[0].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx - 45, y: by + bh * 0.75, buildingName: housePalettes[1].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw * 0.35, y: by - 45, buildingName: housePalettes[2].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw * 0.75, y: by - 45, buildingName: housePalettes[3].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.35, buildingName: housePalettes[0].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.75, buildingName: housePalettes[1].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw * 0.35, y: by + bh + 45, buildingName: housePalettes[2].name, district: 'RESIDENTIAL' });
+      this.deliverySpots.push({ x: bx + bw * 0.75, y: by + bh + 45, buildingName: housePalettes[3].name, district: 'RESIDENTIAL' });
     } else if (district === 'PARK') {
       // Park & Waterfront District: central lake/fountain, benches, pavilions, lush tree clusters
       const pavW = (innerW - 50) / 2;
@@ -247,8 +260,12 @@ export class CityMap {
         this.trees.push({ x: t.x, y: t.y, radius: 20, color: '#1b4332', highlightColor: '#40916c' });
       }
 
-      this.deliverySpots.push({ x: innerX + innerW / 2, y: by - 45 });
-      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh / 2 });
+      this.deliverySpots.push({ x: innerX + innerW * 0.35, y: by - 45, buildingName: 'PARK BOTANICAL', district: 'PARK' });
+      this.deliverySpots.push({ x: innerX + innerW * 0.75, y: by - 45, buildingName: 'PARK BOTANICAL', district: 'PARK' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.35, buildingName: 'RIVER CAFE', district: 'PARK' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.75, buildingName: 'RIVER CAFE', district: 'PARK' });
+      this.deliverySpots.push({ x: innerX + innerW * 0.5, y: by + bh + 45, buildingName: 'RIVER CAFE', district: 'PARK' });
+      this.deliverySpots.push({ x: bx - 45, y: by + bh * 0.5, buildingName: 'PARK BOTANICAL', district: 'PARK' });
     } else {
       // Downtown / Commercial District: high-contrast shops & 2.5D skyscrapers
       const shopThemes = [
@@ -284,9 +301,14 @@ export class CityMap {
         this.trees.push({ x: sx + halfW - 20, y: innerY + innerH + 12, radius: 16, color: '#2b9348', highlightColor: '#55a630' });
       }
 
-      this.deliverySpots.push({ x: bx - 45, y: by + bh / 2 });
-      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh / 2 });
-      this.deliverySpots.push({ x: bx + bw / 2, y: by + bh + 45 });
+      this.deliverySpots.push({ x: bx - 45, y: by + bh * 0.35, buildingName: shopThemes[0].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx - 45, y: by + bh * 0.75, buildingName: shopThemes[1].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.35, buildingName: shopThemes[2].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw + 45, y: by + bh * 0.75, buildingName: shopThemes[3].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw * 0.35, y: by - 45, buildingName: shopThemes[0].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw * 0.75, y: by - 45, buildingName: shopThemes[1].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw * 0.35, y: by + bh + 45, buildingName: shopThemes[2].name, district: 'DOWNTOWN' });
+      this.deliverySpots.push({ x: bx + bw * 0.75, y: by + bh + 45, buildingName: shopThemes[3].name, district: 'DOWNTOWN' });
     }
   }
 
@@ -319,6 +341,62 @@ export class CityMap {
       this.trafficLanes.push({ id: laneId++, startX: vr.x + vr.w * 0.3, startY: 100, endX: vr.x + vr.w * 0.3, endY: this.height - 100, angle: Math.PI / 2 });
       // Northbound lane
       this.trafficLanes.push({ id: laneId++, startX: vr.x + vr.w * 0.7, startY: this.height - 100, endX: vr.x + vr.w * 0.7, endY: 100, angle: -Math.PI / 2 });
+    }
+  }
+
+  public update(dt: number): void {
+    for (const b of this.buildings) {
+      if (b.celebrationTimer && b.celebrationTimer > 0) {
+        b.celebrationTimer = Math.max(0, b.celebrationTimer - dt);
+        if (b.celebrationTimer === 0) {
+          b.celebrationLevel = undefined;
+          b.celebrationColor = undefined;
+        }
+      }
+    }
+  }
+
+  public triggerBuildingCelebration(x: number, y: number, level: 1 | 2 | 3, color: string = '#00f5d4', buildingName?: string): void {
+    // 1. Target building directly
+    let targetBuilding = buildingName
+      ? this.buildings.find(b => b.name === buildingName)
+      : null;
+
+    if (!targetBuilding) {
+      // Find closest building within 220px
+      let minDist = 220;
+      for (const b of this.buildings) {
+        if (b.w > 2000 || b.h > 2000) continue;
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2;
+        const dist = Math.hypot(cx - x, cy - y);
+        if (dist < minDist) {
+          minDist = dist;
+          targetBuilding = b;
+        }
+      }
+    }
+
+    if (targetBuilding) {
+      targetBuilding.celebrationTimer = level === 3 ? 3.0 : (level === 2 ? 2.2 : 1.6);
+      targetBuilding.celebrationLevel = level;
+      targetBuilding.celebrationColor = color;
+    }
+
+    // 2. If Level 2 or 3, ignite neighboring buildings in the district!
+    if (level >= 2) {
+      const radius = level === 3 ? 550 : 320;
+      for (const b of this.buildings) {
+        if (b.w > 2000 || b.h > 2000 || b === targetBuilding) continue;
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2;
+        const dist = Math.hypot(cx - x, cy - y);
+        if (dist <= radius) {
+          b.celebrationTimer = (level === 3 ? 2.5 : 1.8) * (1 - dist / (radius * 1.5));
+          b.celebrationLevel = level;
+          b.celebrationColor = color;
+        }
+      }
     }
   }
 
@@ -666,6 +744,61 @@ export class CityMap {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(b.name, signX + signW / 2, signY + signH / 2);
+      }
+
+      // --- CHAOS CHAIN: BUILDING CELEBRATION REACTIONS ---
+      if (b.celebrationTimer && b.celebrationTimer > 0) {
+        const lvl = b.celebrationLevel || 1;
+        const color = b.celebrationColor || '#00f5d4';
+        const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
+
+        ctx.save();
+        // Glowing Neon Aura around the building
+        ctx.shadowColor = color;
+        ctx.shadowBlur = lvl === 3 ? 35 : (lvl === 2 ? 22 : 12);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lvl === 3 ? 6 : (lvl === 2 ? 4 : 3);
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.shadowBlur = 0;
+
+        // Illuminated party windows & beacon
+        if (lvl >= 2) {
+          // Party roof bunting / party flags
+          const flagCount = Math.floor(b.w / 24);
+          for (let f = 0; f < flagCount; f++) {
+            const fx = b.x + 8 + f * 24;
+            const fy = b.y - 2;
+            const flagColor = (f % 3 === 0) ? '#fee440' : (f % 3 === 1 ? '#ff0055' : '#00f5d4');
+            ctx.fillStyle = flagColor;
+            ctx.beginPath();
+            ctx.moveTo(fx, fy);
+            ctx.lineTo(fx + 12, fy);
+            ctx.lineTo(fx + 6, fy + 12 + Math.sin(Date.now() * 0.008 + f) * 3);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // Shimmering illuminated storefront windows
+          ctx.fillStyle = `rgba(254, 228, 64, ${0.4 + pulse * 0.4})`;
+          ctx.fillRect(b.x + 14, b.y + b.h - 18, b.w - 28, 12);
+        }
+
+        // Level 3 City Goes Wild: Party light beams & floating star beacon
+        if (lvl === 3) {
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+          const beamAngle = Date.now() * 0.003;
+          ctx.strokeStyle = `rgba(255, 255, 255, ${0.35 + pulse * 0.35})`;
+          ctx.lineWidth = 2.5;
+          for (let a = 0; a < 4; a++) {
+            const rot = beamAngle + (a * Math.PI) / 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + Math.cos(rot) * (b.w * 0.8), cy + Math.sin(rot) * (b.h * 0.8));
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
       }
     }
 

@@ -35,12 +35,15 @@ export const GAME_CONFIG = {
     THROW_COOLDOWN_SECONDS: 0.35, // Rate limit / debounce between throws
     AUTO_REPLENISH_SECONDS: 2.0,  // Forgiving auto replenishment so player is never stranded
     CHARGE_DURATION_SECONDS: 0.8, // Maximum charge reached in 0.8s
+    MAX_CHARGE_HOLD_SECONDS: 2.2, // Auto-release if held past this limit to prevent indefinite hold exploit
     MIN_THROW_SPEED: 380,         // Short tap throw distance (~210px)
     MAX_THROW_SPEED: 820,         // Full charge sniper distance (~450-500px)
     FLIGHT_TIME: 0.55,            // seconds in air
     HIT_RADIUS_TOLERANCE: 52,     // forgiving collision radius with target
     LONG_DISTANCE_THRESHOLD: 280, // distance threshold for sniper score
     LONG_DISTANCE_BONUS: 200,
+    MOVING_DELIVERY_MIN_SPEED: 55,// Minimum van speed (px/s) for moving delivery bonus
+    MOVING_DELIVERY_BONUS: 100,   // Bonus points for landing a moving delivery
     BASE_POINTS: 100,
   },
 
@@ -72,11 +75,19 @@ export const GAME_CONFIG = {
     },
   },
 
-  // Targets & Zones
+  // Targets & Zones (Phase 2 Rescue)
   TARGETS: {
     MAX_ACTIVE: 4,
     ZONE_RADIUS: 48,
     PULSE_SPEED: 3.5,
+    FIRST_TARGET_MAX_DISTANCE: 450, // Pacing: first target reachable within 10-15s
+    ROUTE_MIN_CHAIN_DISTANCE: 380,  // Sequential target pacing for combo chaining
+    ROUTE_MAX_CHAIN_DISTANCE: 850,
+  },
+
+  // Celebration Contract (Keep the Party Moving)
+  CELEBRATION: {
+    DURATION_SECONDS: 1.5,
   },
 
   // Combos & Multipliers

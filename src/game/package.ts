@@ -9,9 +9,11 @@ export interface PackageResolution {
   target?: DeliveryTarget;
   distance: number;
   isLongShot: boolean;
+  wasMoving: boolean;
   points: number;
   x: number;
   y: number;
+  missReason?: 'SHORT' | 'LONG' | 'WIDE';
 }
 
 export class PackageManager {
@@ -58,10 +60,15 @@ export class PackageManager {
     this.chargeTime = 0;
   }
 
-  public updateCharge(dt: number): void {
+  public updateCharge(dt: number): boolean {
     if (this.isCharging) {
       this.chargeTime += dt;
+      // Auto-release if held beyond maximum hold limit to prevent exploit
+      if (this.chargeTime >= GAME_CONFIG.PACKAGES.MAX_CHARGE_HOLD_SECONDS) {
+        return true;
+      }
     }
+    return false;
   }
 
   public getChargeRatio(): number {
@@ -110,6 +117,7 @@ export class PackageManager {
     }
 
     const { targetX, targetY, flightDuration } = this.calculateTrajectory(carX, carY, carAngle, carSpeed);
+    const wasMoving = Math.abs(carSpeed) >= GAME_CONFIG.PACKAGES.MOVING_DELIVERY_MIN_SPEED;
 
     this.isCharging = false;
     this.chargeTime = 0;
@@ -133,6 +141,7 @@ export class PackageManager {
       rotation: Math.random() * Math.PI,
       rotationSpeed: (Math.random() - 0.5) * 12,
       resolved: false,
+      wasMoving,
     });
 
     if (this.packagesRemaining === 0 && !this.isReloading) {
@@ -154,10 +163,16 @@ export class PackageManager {
 
     const { targetX, targetY, throwDist } = this.calculateTrajectory(carX, carY, carAngle, carSpeed);
 
-    // Check if landing indicator is close to any active delivery target
-    const targetLock = targets.some(
-      t => t.active && Math.hypot(targetX - t.x, targetY - t.y) <= t.radius + GAME_CONFIG.PACKAGES.HIT_RADIUS_TOLERANCE
-    );
+    // Exact lock-on check matching collision acceptance criteria
+    const hitTolerance = GAME_CONFIG.PACKAGES.HIT_RADIUS_TOLERANCE;
+    let lockedTarget: DeliveryTarget | null = null;
+    for (const t of targets) {
+      if (!t.active) continue;
+      if (Math.hypot(targetX - t.x, targetY - t.y) <= t.radius + hitTolerance) {
+        lockedTarget = t;
+        break;
+      }
+    }
 
     return {
       isCharging: true,
@@ -168,7 +183,8 @@ export class PackageManager {
       landingY: targetY,
       predictedDistance: Math.round(throwDist),
       deliveryType: this.currentDeliveryType,
-      targetLock,
+      targetLock: lockedTarget !== null,
+      lockedTargetName: lockedTarget ? lockedTarget.name : undefined,
     };
   }
 
@@ -213,9 +229,9 @@ export class PackageManager {
 
       effects.addPackageTrail(p.currentX, p.currentY);
 
-      // Mid-air descent proximity check (progress >= 0.70)
-      if (p.progress >= 0.70 && !p.resolved) {
-        const hitTarget = this.checkTargetHit(p.currentX, p.currentY, targets);
+      // Consistent collision acceptance: check hit at intended landing coordinates as package descends (progress >= 0.85)
+      if (p.progress >= 0.85 && !p.resolved) {
+        const hitTarget = this.checkTargetHit(p.targetX, p.targetY, targets);
         if (hitTarget) {
           p.resolved = true;
           this.resolveSuccessfulHit(p, hitTarget, effects, onResolution);
@@ -231,22 +247,52 @@ export class PackageManager {
         if (hitTarget) {
           this.resolveSuccessfulHit(p, hitTarget, effects, onResolution);
         } else {
-          effects.addMissDust(p.currentX, p.currentY);
+          effects.addMissDust(p.targetX, p.targetY);
           sound.playMiss();
           const throwDist = Math.hypot(p.targetX - p.startX, p.targetY - p.startY);
+          const missReason = this.classifyMiss(p, targets);
           onResolution({
             type: 'MISS',
             deliveryType: p.type,
             distance: throwDist,
             isLongShot: false,
+            wasMoving: p.wasMoving,
             points: 0,
-            x: p.currentX,
-            y: p.currentY,
+            x: p.targetX,
+            y: p.targetY,
+            missReason,
           });
         }
         this.activePackages.splice(i, 1);
       }
     }
+  }
+
+  private classifyMiss(p: ThrownPackage, targets: DeliveryTarget[]): 'SHORT' | 'LONG' | 'WIDE' {
+    let nearestTarget: DeliveryTarget | null = null;
+    let nearestDist = Infinity;
+
+    for (const t of targets) {
+      if (!t.active) continue;
+      const d = Math.hypot(t.x - p.startX, t.y - p.startY);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestTarget = t;
+      }
+    }
+
+    if (!nearestTarget) return 'WIDE';
+
+    const throwDist = Math.hypot(p.targetX - p.startX, p.targetY - p.startY);
+    const targetDist = nearestDist;
+    const tolerance = nearestTarget.radius + GAME_CONFIG.PACKAGES.HIT_RADIUS_TOLERANCE;
+
+    if (throwDist < targetDist - tolerance) {
+      return 'SHORT';
+    } else if (throwDist > targetDist + tolerance) {
+      return 'LONG';
+    }
+    return 'WIDE';
   }
 
   private checkTargetHit(x: number, y: number, targets: DeliveryTarget[]): DeliveryTarget | null {
@@ -284,10 +330,15 @@ export class PackageManager {
     } else if (p.type === 'EXPRESS' && isLongShot) {
       points += GAME_CONFIG.DELIVERY_TYPES.EXPRESS.bonusPoints;
     } else if (p.type === 'FRAGILE') {
-      const accuracyDist = Math.hypot(p.currentX - hitTarget.x, p.currentY - hitTarget.y);
+      const accuracyDist = Math.hypot(p.targetX - hitTarget.x, p.targetY - hitTarget.y);
       if (accuracyDist < 25) {
         points += GAME_CONFIG.DELIVERY_TYPES.FRAGILE.bonusPoints;
       }
+    }
+
+    // Moving Delivery Skill Bonus (Phase 2 Rescue)
+    if (p.wasMoving) {
+      points += GAME_CONFIG.PACKAGES.MOVING_DELIVERY_BONUS;
     }
 
     effects.addDeliveryBurst(hitTarget.x, hitTarget.y, hitTarget.color);
@@ -299,6 +350,7 @@ export class PackageManager {
       target: hitTarget,
       distance: throwDist,
       isLongShot,
+      wasMoving: p.wasMoving,
       points,
       x: hitTarget.x,
       y: hitTarget.y,
@@ -311,7 +363,7 @@ export class PackageManager {
     // 1. Dotted Aiming Trajectory Arc
     const segments = 16;
     ctx.strokeStyle = indicator.targetLock ? '#00f5d4' : (indicator.chargeRatio >= 0.95 ? '#ff0055' : '#fee440');
-    ctx.lineWidth = 3;
+    ctx.lineWidth = indicator.targetLock ? 3.5 : 2.5;
     ctx.setLineDash([8, 6]);
 
     ctx.beginPath();
@@ -325,7 +377,7 @@ export class PackageManager {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 2. Glowing Landing Zone Bullseye
+    // 2. Glowing Landing Zone Bullseye & Lock Brackets
     const landingRadius = 18 + Math.sin(Date.now() * 0.01) * 3;
     ctx.fillStyle = indicator.targetLock ? 'rgba(0, 245, 212, 0.35)' : 'rgba(254, 228, 64, 0.25)';
     ctx.beginPath();
@@ -333,8 +385,52 @@ export class PackageManager {
     ctx.fill();
 
     ctx.strokeStyle = indicator.targetLock ? '#00f5d4' : '#fee440';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = indicator.targetLock ? 3 : 2;
     ctx.stroke();
+
+    if (indicator.targetLock) {
+      // Corner reticle brackets when locked on valid target zone
+      const bSize = 12;
+      const bOffset = landingRadius + 6;
+      ctx.strokeStyle = '#00f5d4';
+      ctx.lineWidth = 2.5;
+
+      // Top-Left
+      ctx.beginPath();
+      ctx.moveTo(indicator.landingX - bOffset, indicator.landingY - bOffset + bSize);
+      ctx.lineTo(indicator.landingX - bOffset, indicator.landingY - bOffset);
+      ctx.lineTo(indicator.landingX - bOffset + bSize, indicator.landingY - bOffset);
+      ctx.stroke();
+
+      // Top-Right
+      ctx.beginPath();
+      ctx.moveTo(indicator.landingX + bOffset - bSize, indicator.landingY - bOffset);
+      ctx.lineTo(indicator.landingX + bOffset, indicator.landingY - bOffset);
+      ctx.lineTo(indicator.landingX + bOffset, indicator.landingY - bOffset + bSize);
+      ctx.stroke();
+
+      // Bottom-Left
+      ctx.beginPath();
+      ctx.moveTo(indicator.landingX - bOffset, indicator.landingY + bOffset - bSize);
+      ctx.lineTo(indicator.landingX - bOffset, indicator.landingY + bOffset);
+      ctx.lineTo(indicator.landingX - bOffset + bSize, indicator.landingY + bOffset);
+      ctx.stroke();
+
+      // Bottom-Right
+      ctx.beginPath();
+      ctx.moveTo(indicator.landingX + bOffset - bSize, indicator.landingY + bOffset);
+      ctx.lineTo(indicator.landingX + bOffset, indicator.landingY + bOffset);
+      ctx.lineTo(indicator.landingX + bOffset, indicator.landingY + bOffset - bSize);
+      ctx.stroke();
+
+      // Center lock crosshair
+      ctx.beginPath();
+      ctx.moveTo(indicator.landingX - 5, indicator.landingY);
+      ctx.lineTo(indicator.landingX + 5, indicator.landingY);
+      ctx.moveTo(indicator.landingX, indicator.landingY - 5);
+      ctx.lineTo(indicator.landingX, indicator.landingY + 5);
+      ctx.stroke();
+    }
 
     // 3. Compact Charge Meter above Van
     const barW = 44;

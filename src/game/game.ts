@@ -72,7 +72,38 @@ export class Game {
     handleResize();
   }
 
+  private getSavedHighScore(): number {
+    try {
+      return parseInt(localStorage.getItem('panic_delivery_highscore') || '0', 10) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private getSavedBestCombo(): number {
+    try {
+      return parseInt(localStorage.getItem('panic_delivery_bestcombo') || '1', 10) || 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  private saveHighScore(score: number, combo: number): void {
+    try {
+      if (score > this.getSavedHighScore()) {
+        localStorage.setItem('panic_delivery_highscore', score.toString());
+      }
+      if (combo > this.getSavedBestCombo()) {
+        localStorage.setItem('panic_delivery_bestcombo', combo.toString());
+      }
+    } catch {
+      // safe fallback if storage unavailable
+    }
+  }
+
   private createInitialState(): GameState {
+    const savedHighScore = this.getSavedHighScore();
+    const savedBestCombo = this.getSavedBestCombo();
     return {
       phase: 'MENU',
       score: 0,
@@ -88,8 +119,11 @@ export class Game {
       reloadProgress: 0,
       comboTimeLeft: 0,
       lastScoreEvent: null,
+      activeCelebration: null,
       currentDeliveryType: 'EXPRESS',
       isFinalRush: false,
+      highScore: savedHighScore,
+      bestCombo: savedBestCombo,
     };
   }
 
@@ -164,6 +198,9 @@ export class Game {
       this.state.timeLeft = 0;
       this.state.phase = 'GAMEOVER';
       this.gameOverLockoutTimer = 1.0; // Mandatory 1-second lockout
+      this.saveHighScore(this.state.score, this.state.maxCombo);
+      this.state.highScore = Math.max(this.state.highScore, this.state.score);
+      this.state.bestCombo = Math.max(this.state.bestCombo, this.state.maxCombo);
       this.sound.stopLoops();
       this.effects.triggerFlash('#fee440', 0.35);
       return;
@@ -175,6 +212,14 @@ export class Game {
       if (this.state.comboTimeLeft <= 0) {
         this.state.combo = 1;
         this.state.comboTimeLeft = 0;
+      }
+    }
+
+    // 2b. Celebration event decay (Keep the Party Moving)
+    if (this.state.activeCelebration) {
+      this.state.activeCelebration.elapsed += dt;
+      if (this.state.activeCelebration.elapsed >= this.state.activeCelebration.duration) {
+        this.state.activeCelebration = null;
       }
     }
 
@@ -215,13 +260,16 @@ export class Game {
     }
 
     // While Space is held down, smoothly accumulate charge
+    let autoRelease = false;
     if (this.input.space) {
       if (!this.packages.isCharging) {
         this.packages.startCharging(this.state.currentDeliveryType || 'EXPRESS');
       }
-      this.packages.updateCharge(dt);
-    } else if (this.packages.isCharging) {
-      // Space released: Launch package with charged velocity
+      autoRelease = this.packages.updateCharge(dt);
+    }
+
+    if (autoRelease || (!this.input.space && this.packages.isCharging)) {
+      // Space released OR max hold limit reached: Launch package with charged velocity
       const threw = this.packages.releaseAndThrow(
         this.van.x,
         this.van.y,
@@ -258,8 +306,9 @@ export class Game {
       ? this.packages.reloadTimer / GAME_CONFIG.PACKAGES.RELOAD_TIME_SECONDS
       : 0;
 
-    // 7. Targets Update
+    // 7. Targets & Map Update
     this.targets.update(dt);
+    this.map.update(dt);
 
     // 8. Visual Effects & Speed Streaks Update
     this.effects.update(dt);
@@ -307,6 +356,9 @@ export class Game {
       if (res.isLongShot) {
         popupText += ' 🎯 LONG THROW!';
       }
+      if (res.wasMoving) {
+        popupText += ' 🚗 MOVING BONUS!';
+      }
       if (this.state.isFinalRush) {
         popupText += ' ⚡ 2X RUSH!';
       }
@@ -324,7 +376,49 @@ export class Game {
         color: popupColor,
       };
 
-      this.targets.markDelivered(res.target.id);
+      // --- SIGNATURE CHAOS CHAIN SYSTEM: THE CITY GOES WILD ---
+      // Level 1: DELIVERY SPARK (First delivery)
+      // Level 2: NEIGHBORHOOD PARTY (Consecutive chained delivery, combo >= 2)
+      // Level 3: CITY GOES WILD! (Third consecutive delivery, combo >= 3)
+      let celebrationLevel: 1 | 2 | 3 = 1;
+      if (this.state.combo >= 3) {
+        celebrationLevel = 3;
+      } else if (this.state.combo === 2 || (this.state.activeCelebration !== null && this.state.activeCelebration.active)) {
+        celebrationLevel = 2;
+      }
+
+      // Visual particles based on Chaos Chain level
+      if (celebrationLevel === 3) {
+        this.effects.addCityGoesWildBurst(res.x, res.y);
+        this.sound.playCityGoesWild();
+        this.effects.addScorePopup(res.x, res.y - 65, '🔥 CITY GOES WILD! 🔥', '#fee440');
+      } else if (celebrationLevel === 2) {
+        this.effects.addNeighborhoodPartyBurst(res.x, res.y, popupColor);
+        this.effects.addScorePopup(res.x, res.y - 50, '🎉 NEIGHBORHOOD PARTY! 🎉', '#00f5d4');
+      }
+
+      // Ignite receiving building and neighboring blocks
+      this.map.triggerBuildingCelebration(res.x, res.y, celebrationLevel, popupColor, res.target.name);
+
+      // Trigger nearby pedestrians jumping and cheering
+      this.livingCity.triggerPedestrianCheer(res.x, res.y, celebrationLevel === 3 ? 600 : 380, celebrationLevel === 3 ? 2.8 : 2.0);
+
+      this.state.activeCelebration = {
+        level: celebrationLevel,
+        x: res.x,
+        y: res.y,
+        deliveryType: res.deliveryType,
+        wasMoving: res.wasMoving,
+        combo: this.state.combo,
+        points: totalPoints,
+        duration: celebrationLevel === 3 ? 2.5 : (celebrationLevel === 2 ? 2.0 : GAME_CONFIG.CELEBRATION.DURATION_SECONDS),
+        elapsed: 0,
+        active: true,
+        buildingName: res.target.name,
+      };
+
+      // Route sequencing: spawn replacement target reachable from current delivered spot
+      this.targets.markDelivered(res.target.id, { x: res.x, y: res.y });
 
       // Cycle next active delivery variety to match next closest target
       const remainingTargets = this.targets.targets.filter((t) => t.active);
@@ -335,13 +429,23 @@ export class Game {
       }
     } else {
       this.state.misses++;
-      if (this.state.combo > 1) {
-        this.effects.addScorePopup(res.x, res.y - 18, 'MISSED! COMBO RESET', '#ff595e');
-      } else {
-        this.effects.addScorePopup(res.x, res.y - 18, 'MISSED!', '#ff595e');
+      let missText = 'MISSED!';
+      if (res.missReason === 'SHORT') {
+        missText = 'SHORT! CHARGE MORE';
+      } else if (res.missReason === 'LONG') {
+        missText = 'OVERSHOT!';
+      } else if (res.missReason === 'WIDE') {
+        missText = 'OFF TARGET!';
       }
+
+      if (this.state.combo > 1) {
+        missText += ' (COMBO RESET)';
+      }
+      this.effects.addScorePopup(res.x, res.y - 18, missText, '#ff595e');
+
       this.state.combo = 1;
       this.state.comboTimeLeft = 0;
+      this.state.activeCelebration = null;
     }
   }
 

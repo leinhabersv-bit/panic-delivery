@@ -141,6 +141,43 @@ export class SoundFx {
     });
   }
 
+  public playCityGoesWild(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    // Triumphant multi-voice brass fanfare chords
+    const fanfareNotes = [
+      { freq: 523.25, time: 0 },    // C5
+      { freq: 659.25, time: 0.08 }, // E5
+      { freq: 783.99, time: 0.16 }, // G5
+      { freq: 1046.50, time: 0.26 },// C6
+      { freq: 1318.51, time: 0.38 },// E6
+    ];
+
+    fanfareNotes.forEach((note) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + note.time;
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(note.freq, t);
+
+      // Lowpass filter for warm arcade brass timbre
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, t);
+
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.7);
+    });
+  }
+
   public playMiss(): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;

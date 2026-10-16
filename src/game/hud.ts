@@ -14,7 +14,7 @@ export class TemporaryHUD {
     ctx.save();
 
     if (state.phase === 'MENU') {
-      this.renderMenu(ctx);
+      this.renderMenu(ctx, state);
     } else if (state.phase === 'PLAYING') {
       this.renderPlaying(ctx, state);
       this.renderTargetPointers(ctx, carX, carY, targets, cameraX, cameraY);
@@ -181,6 +181,41 @@ export class TemporaryHUD {
       ctx.restore();
     }
 
+    // CHAOS CHAIN CELEBRATION BANNER
+    if (state.activeCelebration && state.activeCelebration.active) {
+      const cel = state.activeCelebration;
+      const celPct = 1 - (cel.elapsed / cel.duration);
+      if (celPct > 0) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1.0, celPct * 2);
+        const bannerW = cel.level === 3 ? 340 : 280;
+        const bannerH = 32;
+        const bannerY = state.isFinalRush ? 128 : 96;
+
+        const bannerBg = cel.level === 3 ? 'rgba(254, 228, 64, 0.22)' : (cel.level === 2 ? 'rgba(0, 245, 212, 0.2)' : 'rgba(15, 23, 42, 0.85)');
+        const bannerBorder = cel.level === 3 ? '#fee440' : (cel.level === 2 ? '#00f5d4' : '#38bdf8');
+
+        ctx.fillStyle = bannerBg;
+        ctx.strokeStyle = bannerBorder;
+        ctx.lineWidth = cel.level === 3 ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.roundRect(W / 2 - bannerW / 2, bannerY, bannerW, bannerH, 16);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = '900 14px "Fredoka", system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = cel.level === 3 ? '#fee440' : (cel.level === 2 ? '#00f5d4' : '#ffffff');
+
+        let text = '⚡ DELIVERY SPARK! ⚡';
+        if (cel.level === 3) text = '🔥 LEVEL 3: THE CITY GOES WILD! 🔥';
+        else if (cel.level === 2) text = '🎉 LEVEL 2: NEIGHBORHOOD PARTY! 🎉';
+
+        ctx.fillText(text, W / 2, bannerY + 21);
+        ctx.restore();
+      }
+    }
+
     // SUBTLE CONTROLS HINT (Bottom pill)
     const hintY = GAME_CONFIG.CANVAS_HEIGHT - 24;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
@@ -266,7 +301,7 @@ export class TemporaryHUD {
     }
   }
 
-  private renderMenu(ctx: CanvasRenderingContext2D): void {
+  private renderMenu(ctx: CanvasRenderingContext2D, state: GameState): void {
     const W = GAME_CONFIG.CANVAS_WIDTH;
     const H = GAME_CONFIG.CANVAS_HEIGHT;
 
@@ -286,13 +321,13 @@ export class TemporaryHUD {
     ctx.shadowBlur = 0;
 
     // Subtitle badge
-    ctx.font = 'bold 20px "Outfit", system-ui, sans-serif';
+    ctx.font = '900 22px "Fredoka", system-ui, sans-serif';
     ctx.fillStyle = '#fee440';
-    ctx.fillText('120-SECOND ARCADE DELIVERY RUSH', W / 2, H / 2 - 75);
+    ctx.fillText('THE CITY GOES WILD! • 120-SECOND RUSH', W / 2, H / 2 - 75);
 
     // Instruction card
-    const cardW = 560;
-    const cardH = 175;
+    const cardW = 600;
+    const cardH = 185;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
     ctx.lineWidth = 1.5;
@@ -303,10 +338,17 @@ export class TemporaryHUD {
 
     ctx.font = '16px "Outfit", system-ui, sans-serif';
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText('🚚 Drive around the city and launch packages into delivery zones.', W / 2, H / 2 - 10);
-    ctx.fillText('⚡ Chain consecutive deliveries to crank your combo multiplier!', W / 2, H / 2 + 20);
-    ctx.fillText('💥 Crashing into walls or missing throws breaks your streak.', W / 2, H / 2 + 50);
-    ctx.fillText('🎯 Score massive bonus points for long-distance snipes!', W / 2, H / 2 + 80);
+    ctx.fillText('🚚 Drive and launch charged packages into glowing customer zones.', W / 2, H / 2 - 12);
+    ctx.fillText('⚡ Level 1: DELIVERY SPARK lights up the target building!', W / 2, H / 2 + 16);
+    ctx.fillText('🎉 Level 2: NEIGHBORHOOD PARTY brings the block to life with cheering crowds!', W / 2, H / 2 + 44);
+    ctx.fillText('🔥 Level 3: CITY GOES WILD! Triggers citywide party lights & fanfare!', W / 2, H / 2 + 72);
+
+    // Best score chip on title screen
+    if (state.highScore > 0) {
+      ctx.font = 'bold 14px "Fredoka", system-ui, sans-serif';
+      ctx.fillStyle = '#fee440';
+      ctx.fillText(`🏆 BEST SCORE: ${state.highScore.toLocaleString()}  •  MAX COMBO: x${state.bestCombo}`, W / 2, H / 2 + 155);
+    }
 
     // Big pulsing start button
     const pulse = (Math.sin(Date.now() * 0.006) + 1) * 0.5;
@@ -314,12 +356,12 @@ export class TemporaryHUD {
     ctx.fillStyle = pulse > 0.5 ? '#00f5d4' : '#ffffff';
     ctx.shadowColor = '#00f5d4';
     ctx.shadowBlur = pulse * 20;
-    ctx.fillText('PRESS [Z] TO START', W / 2, H / 2 + 185);
+    ctx.fillText('PRESS [Z] TO START', W / 2, H / 2 + (state.highScore > 0 ? 195 : 185));
     ctx.shadowBlur = 0;
 
     ctx.font = 'bold 13px "Outfit", monospace';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('CONTROLS: ARROWS = DRIVE  |  Z = DRIFT / START  |  SPACE = THROW', W / 2, H / 2 + 235);
+    ctx.fillText('CONTROLS: ARROWS = DRIVE  |  Z = DRIFT / START  |  SPACE = THROW', W / 2, H / 2 + (state.highScore > 0 ? 240 : 235));
   }
 
   private renderGameOver(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -340,23 +382,23 @@ export class TemporaryHUD {
     ctx.shadowBlur = 0;
 
     // Rank Badge (S-Rank, A-Rank, etc.)
-    let rank = 'B-RANK';
+    let rank = 'B-RANK LOCAL DRIVER';
     let rankColor = '#4cc9f0';
     if (state.score >= 5000) {
-      rank = 'S-RANK MASTER COURIER';
+      rank = 'S-RANK MASTER COURIER 🌟';
       rankColor = '#fee440';
     } else if (state.score >= 2500) {
-      rank = 'A-RANK SPEED DEMON';
+      rank = 'A-RANK SPEED DEMON ⚡';
       rankColor = '#00f5d4';
     }
 
-    ctx.font = 'bold 18px "Outfit", sans-serif';
+    ctx.font = '900 20px "Fredoka", sans-serif';
     ctx.fillStyle = rankColor;
     ctx.fillText(rank, W / 2, H / 2 - 110);
 
     // Summary Card
-    const cardW = 480;
-    const cardH = 200;
+    const cardW = 520;
+    const cardH = 210;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = 1.5;
@@ -370,16 +412,16 @@ export class TemporaryHUD {
     ctx.fillText('FINAL SCORE', W / 2, H / 2 - 50);
 
     ctx.font = '900 48px "Fredoka", system-ui, sans-serif';
-    ctx.fillStyle = '#00f5d4';
-    ctx.fillText(`${state.score.toLocaleString()}`, W / 2, H / 2 - 10);
+    ctx.fillStyle = state.score >= state.highScore && state.score > 0 ? '#fee440' : '#00f5d4';
+    ctx.fillText(`${state.score.toLocaleString()}${state.score >= state.highScore && state.score > 0 ? ' (NEW RECORD!)' : ''}`, W / 2, H / 2 - 10);
 
     // Stats Grid
     ctx.font = '16px "Outfit", system-ui, sans-serif';
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(`Deliveries: ${state.deliveries}`, W / 2 - 110, H / 2 + 50);
-    ctx.fillText(`Max Combo: x${state.maxCombo}`, W / 2 + 110, H / 2 + 50);
-    ctx.fillText(`Misses: ${state.misses}`, W / 2 - 110, H / 2 + 82);
-    ctx.fillText(`Crashes: ${state.crashes}`, W / 2 + 110, H / 2 + 82);
+    ctx.fillText(`Deliveries: ${state.deliveries}`, W / 2 - 130, H / 2 + 48);
+    ctx.fillText(`Max Combo: x${state.maxCombo}`, W / 2 + 130, H / 2 + 48);
+    ctx.fillText(`Best Record: ${state.highScore.toLocaleString()}`, W / 2 - 130, H / 2 + 80);
+    ctx.fillText(`Crashes / Misses: ${state.crashes} / ${state.misses}`, W / 2 + 130, H / 2 + 80);
 
     // Restart action
     const pulse = (Math.sin(Date.now() * 0.006) + 1) * 0.5;
@@ -387,7 +429,7 @@ export class TemporaryHUD {
     ctx.fillStyle = pulse > 0.5 ? '#00f5d4' : '#ffffff';
     ctx.shadowColor = '#00f5d4';
     ctx.shadowBlur = pulse * 18;
-    ctx.fillText('PRESS [Z] TO PLAY AGAIN', W / 2, H / 2 + 170);
+    ctx.fillText('PRESS [Z] TO PLAY AGAIN', W / 2, H / 2 + 175);
     ctx.shadowBlur = 0;
   }
 }

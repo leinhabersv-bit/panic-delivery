@@ -160,6 +160,100 @@ export class EffectsManager {
     }
   }
 
+  public addNeighborhoodPartyBurst(x: number, y: number, color: string = '#00f5d4'): void {
+    this.addScreenShake(0.35);
+    this.triggerFlash(color, 0.25);
+
+    // Multiple concentric rings
+    for (let r = 0; r < 2; r++) {
+      this.particles.push({
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        radius: 18 + r * 16,
+        color,
+        alpha: 1.0,
+        life: 0,
+        maxLife: 0.65,
+        drag: 1.0,
+        shape: 'ring',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+
+    // Heavy colorful confetti shower
+    const count = 70;
+    const colors = [color, '#fee440', '#f72585', '#ffffff', '#38b000', '#ff5400', '#7209b7'];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+      const speed = 110 + Math.random() * 320;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 20, // upward pop
+        radius: 4 + Math.random() * 6,
+        color: colors[i % colors.length],
+        alpha: 1.0,
+        life: 0,
+        maxLife: 0.9 + Math.random() * 0.5,
+        drag: 0.92,
+        shape: Math.random() > 0.3 ? 'star' : 'square',
+        rotation: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 16,
+      });
+    }
+  }
+
+  public addCityGoesWildBurst(x: number, y: number): void {
+    this.addScreenShake(0.65);
+    this.triggerFlash('#fee440', 0.45);
+
+    // 3 expanding neon fireworks rings
+    for (let r = 0; r < 3; r++) {
+      this.particles.push({
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        radius: 20 + r * 25,
+        color: r === 0 ? '#fee440' : (r === 1 ? '#00f5d4' : '#ff0055'),
+        alpha: 1.0,
+        life: 0,
+        maxLife: 0.85,
+        drag: 1.0,
+        shape: 'ring',
+        rotation: 0,
+        vRot: 0,
+      });
+    }
+
+    // Grand 120-particle explosion with glittering sparks
+    const count = 120;
+    const colors = ['#fee440', '#00f5d4', '#f72585', '#ffffff', '#ff5400', '#7209b7', '#4cc9f0'];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+      const speed = 140 + Math.random() * 420;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 35,
+        radius: 4 + Math.random() * 7,
+        color: colors[i % colors.length],
+        alpha: 1.0,
+        life: 0,
+        maxLife: 1.2 + Math.random() * 0.6,
+        drag: 0.93,
+        shape: Math.random() > 0.4 ? 'star' : 'square',
+        rotation: Math.random() * Math.PI,
+        vRot: (Math.random() - 0.5) * 20,
+      });
+    }
+  }
+
   public addMissDust(x: number, y: number): void {
     this.addScreenShake(0.15);
     for (let i = 0; i < 20; i++) {

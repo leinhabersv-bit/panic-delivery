@@ -105,23 +105,29 @@ export class LivingCityManager {
   public update(dt: number, carX: number, carY: number, effects: EffectsManager, addScore: (pts: number, txt: string) => void): void {
     // 1. Update Pedestrians
     for (const ped of this.pedestrians) {
-      ped.walkTimer += dt * 6;
-      ped.walkCycle = Math.sin(ped.walkTimer);
+      if (ped.cheerTimer && ped.cheerTimer > 0) {
+        ped.cheerTimer -= dt;
+        ped.cheerJump = Math.abs(Math.sin(ped.cheerTimer * 12)) * 12; // Excited jumping animation
+      } else {
+        ped.cheerJump = 0;
+        ped.walkTimer += dt * 6;
+        ped.walkCycle = Math.sin(ped.walkTimer);
 
-      ped.x += ped.dirX * ped.speed * dt;
-      ped.y += ped.dirY * ped.speed * dt;
+        ped.x += ped.dirX * ped.speed * dt;
+        ped.y += ped.dirY * ped.speed * dt;
 
-      // Turn around if reaching segment boundaries
-      const seg = this.map.sidewalkSegments.find(s => s.id === ped.sidewalkSegmentId);
-      if (seg) {
-        const minX = Math.min(seg.startX, seg.endX);
-        const maxX = Math.max(seg.startX, seg.endX);
-        const minY = Math.min(seg.startY, seg.endY);
-        const maxY = Math.max(seg.startY, seg.endY);
+        // Turn around if reaching segment boundaries
+        const seg = this.map.sidewalkSegments.find(s => s.id === ped.sidewalkSegmentId);
+        if (seg) {
+          const minX = Math.min(seg.startX, seg.endX);
+          const maxX = Math.max(seg.startX, seg.endX);
+          const minY = Math.min(seg.startY, seg.endY);
+          const maxY = Math.max(seg.startY, seg.endY);
 
-        if (ped.x < minX || ped.x > maxX || ped.y < minY || ped.y > maxY) {
-          ped.dirX *= -1;
-          ped.dirY *= -1;
+          if (ped.x < minX || ped.x > maxX || ped.y < minY || ped.y > maxY) {
+            ped.dirX *= -1;
+            ped.dirY *= -1;
+          }
         }
       }
     }
@@ -181,6 +187,15 @@ export class LivingCityManager {
     }
   }
 
+  public triggerPedestrianCheer(x: number, y: number, radius: number = 380, duration: number = 2.0): void {
+    for (const ped of this.pedestrians) {
+      const dist = Math.hypot(ped.x - x, ped.y - y);
+      if (dist <= radius) {
+        ped.cheerTimer = duration * (0.8 + Math.random() * 0.4);
+      }
+    }
+  }
+
   public render(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, viewW: number, viewH: number): void {
     const pad = 90; // Viewport spatial culling
 
@@ -215,12 +230,14 @@ export class LivingCityManager {
       if (ped.x < cameraX - pad || ped.x > cameraX + viewW + pad || ped.y < cameraY - pad || ped.y > cameraY + viewH + pad) continue;
 
       ctx.save();
-      ctx.translate(ped.x, ped.y);
+      const jumpY = ped.cheerJump || 0;
+      ctx.translate(ped.x, ped.y - jumpY);
 
-      // Ground shadow
+      // Ground shadow (remains on ground with slight shrink when jumping)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
       ctx.beginPath();
-      ctx.ellipse(0, 4, 6, 3, 0, 0, Math.PI * 2);
+      const shadowScale = Math.max(0.6, 1 - jumpY * 0.03);
+      ctx.ellipse(0, 4 + jumpY, 6 * shadowScale, 3 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Animated legs

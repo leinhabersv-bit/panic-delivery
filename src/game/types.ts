@@ -10,6 +10,20 @@ export interface ScoreEvent {
   color?: string;
 }
 
+export interface CelebrationEvent {
+  level: 1 | 2 | 3; // Level 1: Delivery Spark, Level 2: Neighborhood Party, Level 3: City Goes Wild!
+  x: number;
+  y: number;
+  deliveryType: DeliveryType;
+  wasMoving: boolean;
+  combo: number;
+  points: number;
+  duration: number; // in seconds (e.g. 1.8s)
+  elapsed: number;  // in seconds
+  active: boolean;
+  buildingName?: string;
+}
+
 export interface GameState {
   phase: GamePhase;
   score: number;
@@ -27,6 +41,9 @@ export interface GameState {
   currentDeliveryType: DeliveryType;
   isFinalRush: boolean;
   lastScoreEvent: ScoreEvent | null;
+  activeCelebration: CelebrationEvent | null;
+  highScore: number;
+  bestCombo: number;
 }
 
 export interface Point {
@@ -71,6 +88,7 @@ export interface ThrownPackage {
   rotation: number;
   rotationSpeed: number;
   resolved: boolean;
+  wasMoving: boolean;
 }
 
 export interface SkidSegment {
@@ -92,6 +110,7 @@ export interface AimingIndicator {
   predictedDistance: number;
   deliveryType: DeliveryType;
   targetLock: boolean;
+  lockedTargetName?: string;
 }
 
 export interface Pedestrian {
@@ -106,6 +125,8 @@ export interface Pedestrian {
   walkCycle: number;
   walkTimer: number;
   sidewalkSegmentId: number;
+  cheerTimer?: number;
+  cheerJump?: number;
 }
 
 export interface TrafficVehicle {
