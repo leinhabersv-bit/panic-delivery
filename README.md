@@ -153,4 +153,4 @@ npm test
 
 ## 📄 License
 
-MIT © [Santhosh Prabhu](https://github.com/leinhabersv-bit)
+MIT © [Rithik SV](https://github.com/leinhabersv-bit)
